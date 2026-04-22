@@ -22,7 +22,7 @@ Out of scope for v1: multi-client fan-out, command/control protocol, dynamic TCP
 - Add dedicated capture tests that verify the raw capture stream matches the bytes delivered to the TCP client.
 - Add automated tests and a separately runnable high-rate performance check.
 - Use the protocol spec and golden vectors as the migration path for a later C simulator.
-- Keep the manual performance check isolated in `tests/perf/test_stream_rate.py` and run it with `uv run pytest tests/perf/test_stream_rate.py -s -v`.
+- Keep the manual performance check isolated in `tests/perf/test_stream_rate.py` and run it with `uv run pytest tests/perf/test_stream_rate.py --run-perf -s -v`.
 
 ## Specs
 
@@ -42,7 +42,7 @@ Python is used for the initial mock implementation. Use `uv` for Python project 
 - Keep this `AGENTS.md` updated when scope, architecture, workflow, tooling, or key constraints change.
 - Use TDD for implementation work.
 - Testing is required for implementation completion. Run relevant tests or explicitly report why they could not be run.
-- Treat `tests/perf/` as a manual performance lane and exclude it from the normal reliability gate with `uv run pytest tests -v --ignore=tests/perf`.
+- Treat `tests/perf/` as a manual performance lane and keep it excluded from the normal reliability gate by default with the `--run-perf` opt-in.
 - Do not add TCP frame headers, record delimiters, or per-record checksums to the default stream; the protocol is repeated fixed-size binary records.
 - Treat TCP as the transport-level reliability mechanism. Application-level recovery is reconnect plus `sequence_number` and `dropped_records_total` validation.
 - Optimize the protocol for bandwidth and I/O efficiency.

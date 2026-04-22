@@ -21,3 +21,8 @@ build-backend = "hatchling.build"
 dev = [
     "pytest>=9.0.3",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "perf: manual performance tests that require --run-perf",
+]

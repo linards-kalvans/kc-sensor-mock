@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from time import perf_counter
 
+import pytest
+
 from kc_sensor_mock.client import read_records
 from kc_sensor_mock.config import MockConfig
 from kc_sensor_mock.protocol import MEASUREMENT_TYPE_SPECTRA, RECORD_SIZE
 from kc_sensor_mock.server import SensorServer
 
 
+@pytest.mark.perf
 def test_stream_rate() -> None:
     count = 1_000
     config = MockConfig(
