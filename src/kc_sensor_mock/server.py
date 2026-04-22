@@ -21,6 +21,7 @@ class SensorServer:
         self._producer_thread: threading.Thread | None = None
         self._server_thread: threading.Thread | None = None
         self._capture_file: BinaryIO | None = None
+        self._capture_error: OSError | None = None
         self._state_lock = threading.Lock()
         self.host = config.host
         self.port = config.port
@@ -114,7 +115,16 @@ class SensorServer:
             except OSError:
                 return
 
-            capture_file = self._capture_file
-            if capture_file is not None:
-                capture_file.write(payload)
-                capture_file.flush()
+            self._write_capture_payload(payload)
+
+    def _write_capture_payload(self, payload: bytes) -> None:
+        capture_file = self._capture_file
+        if capture_file is None:
+            return
+
+        try:
+            capture_file.write(payload)
+            capture_file.flush()
+        except OSError as exc:
+            self._capture_error = exc
+            self._stop_event.set()
