@@ -8,7 +8,7 @@ import pytest
 
 from kc_sensor_mock.client import read_records
 from kc_sensor_mock.config import MockConfig
-from kc_sensor_mock.protocol import MEASUREMENT_TYPE_SPECTRA, SensorRecord
+from kc_sensor_mock.protocol import MEASUREMENT_TYPE_SPECTRA, SensorRecord, encode_record
 from kc_sensor_mock.server import SensorServer
 
 
@@ -80,7 +80,7 @@ def test_validate_record_stream_rejects_duplicate_sequence() -> None:
         validate_record_stream(records)
 
 
-def test_validate_record_stream_rejects_non_increasing_timestamps() -> None:
+def test_validate_record_stream_rejects_decreasing_timestamps() -> None:
     from kc_sensor_mock.client import validate_record_stream
 
     records = [
@@ -131,6 +131,7 @@ def test_capture_write_failure_stops_server(monkeypatch, tmp_path: Path) -> None
     server = SensorServer(config)
 
     payloads: list[bytes] = []
+    state = {"size": 0}
 
     class FakeRingBuffer:
         def __init__(self) -> None:
@@ -142,12 +143,19 @@ def test_capture_write_failure_stops_server(monkeypatch, tmp_path: Path) -> None
             return None
 
     class FakeCapture:
+        def tell(self) -> int:
+            return state["size"]
+
         def write(self, payload: bytes) -> None:
             payloads.append(payload)
+            state["size"] += len(payload)
             raise OSError("disk full")
 
         def flush(self) -> None:
             raise AssertionError("flush should not be called after write failure")
+
+        def truncate(self, position: int) -> None:
+            state["size"] = position
 
     fake_socket = Mock()
     fake_socket.sendall = Mock()
@@ -160,6 +168,63 @@ def test_capture_write_failure_stops_server(monkeypatch, tmp_path: Path) -> None
     fake_socket.sendall.assert_not_called()
     assert server._stop_event.is_set()
     assert server._capture_error is not None
+
+
+def test_capture_rolls_back_when_send_fails(monkeypatch, tmp_path: Path) -> None:
+    config = MockConfig(
+        host="127.0.0.1",
+        port=0,
+        device_id=1,
+        measurement_type=MEASUREMENT_TYPE_SPECTRA,
+        rate_hz=1000,
+        mode="burst",
+        ring_buffer_capacity=16,
+        initial_sequence_number=0,
+        gps_latitude=56.6718316,
+        gps_longitude=24.2391946,
+        gps_altitude_m=35.0,
+        capture_path=tmp_path / "capture.bin",
+    )
+
+    server = SensorServer(config)
+    written: list[bytes] = []
+    state = {"size": 0}
+
+    class FakeRingBuffer:
+        def __init__(self) -> None:
+            self._items = [b"payload"]
+
+        def pop(self) -> bytes | None:
+            if self._items:
+                return self._items.pop(0)
+            return None
+
+    class FakeCapture:
+        def tell(self) -> int:
+            return state["size"]
+
+        def write(self, payload: bytes) -> None:
+            written.append(payload)
+            state["size"] += len(payload)
+
+        def flush(self) -> None:
+            pass
+
+        def truncate(self, position: int) -> None:
+            state["size"] = position
+
+    fake_socket = Mock()
+    fake_socket.sendall.side_effect = OSError("client disconnected")
+    monkeypatch.setattr(server, "_ring_buffer", FakeRingBuffer())
+    monkeypatch.setattr(server, "_capture_file", FakeCapture())
+
+    server._stream_to_client(fake_socket)
+
+    assert written == [b"payload"]
+    assert state["size"] == 0
+    assert server._capture_error is None
+    assert server._stop_event.is_set() is False
+    fake_socket.sendall.assert_called_once_with(b"payload")
 
 
 def test_stop_surfaces_capture_error(monkeypatch, tmp_path: Path) -> None:
@@ -183,6 +248,37 @@ def test_stop_surfaces_capture_error(monkeypatch, tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="capture"):
         server.stop()
+
+
+def test_capture_file_matches_client_bytes_for_short_stream(tmp_path: Path) -> None:
+    capture_path = tmp_path / "capture.bin"
+    config = MockConfig(
+        host="127.0.0.1",
+        port=0,
+        device_id=1,
+        measurement_type=MEASUREMENT_TYPE_SPECTRA,
+        rate_hz=1,
+        mode="rate-controlled",
+        ring_buffer_capacity=16,
+        initial_sequence_number=0,
+        gps_latitude=56.6718316,
+        gps_longitude=24.2391946,
+        gps_altitude_m=35.0,
+        capture_path=capture_path,
+    )
+
+    server = SensorServer(config)
+
+    try:
+        server.start()
+        records = read_records(server.host, server.port, count=1, timeout_s=2.0)
+    finally:
+        server.stop()
+
+    capture_bytes = capture_path.read_bytes()
+    expected_bytes = b"".join(encode_record(record) for record in records)
+
+    assert capture_bytes == expected_bytes
 
 
 def test_start_cleans_up_listener_when_capture_open_fails(monkeypatch) -> None:
