@@ -17,6 +17,7 @@ Out of scope for v1: multi-client fan-out, command/control protocol, dynamic TCP
 - Implement a drop-oldest ring buffer.
 - Implement single-client TCP streaming.
 - Implement a reference client for connector validation.
+- Add dedicated capture tests that verify the raw capture stream matches the bytes delivered to the TCP client.
 - Add automated tests and a separately runnable high-rate performance check.
 - Use the protocol spec and golden vectors as the migration path for a later C simulator.
 
