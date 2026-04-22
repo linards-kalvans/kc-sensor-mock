@@ -16,6 +16,7 @@ Out of scope for v1: multi-client fan-out, command/control protocol, dynamic TCP
 - Implement sample-like record generation with configurable rate and burst modes.
 - Implement a drop-oldest ring buffer.
 - Implement single-client TCP streaming.
+- Implement CLI entry points for server and client invocation, including config overrides.
 - Implement a reference client for connector validation.
 - Add dedicated capture tests that verify the raw capture stream matches the bytes delivered to the TCP client.
 - Add automated tests and a separately runnable high-rate performance check.
