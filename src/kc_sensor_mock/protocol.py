@@ -44,7 +44,29 @@ def scale_altitude_mm(value: float) -> int:
     return round(value * 1_000)
 
 
+def _validate_uint_range(name: str, value: int, bits: int) -> None:
+    max_value = (1 << bits) - 1
+    if not 0 <= value <= max_value:
+        raise ValueError(f"{name} must fit in uint{bits}")
+
+
+def _validate_int_range(name: str, value: int, bits: int) -> None:
+    min_value = -(1 << (bits - 1))
+    max_value = (1 << (bits - 1)) - 1
+    if not min_value <= value <= max_value:
+        raise ValueError(f"{name} must fit in int{bits}")
+
+
 def validate_record(record: SensorRecord) -> None:
+    _validate_uint_range("device_id", record.device_id, 16)
+    _validate_uint_range("sequence_number", record.sequence_number, 32)
+    _validate_uint_range("dropped_records_total", record.dropped_records_total, 32)
+    _validate_uint_range("sensor_timestamp_us", record.sensor_timestamp_us, 64)
+    _validate_uint_range("gps_timestamp_us", record.gps_timestamp_us, 64)
+    _validate_int_range("gps_latitude_e7", record.gps_latitude_e7, 32)
+    _validate_int_range("gps_longitude_e7", record.gps_longitude_e7, 32)
+    _validate_int_range("gps_altitude_mm", record.gps_altitude_mm, 32)
+
     if record.measurement_type not in VALID_MEASUREMENT_TYPES:
         raise ValueError(
             f"measurement_type must be one of {sorted(VALID_MEASUREMENT_TYPES)}"

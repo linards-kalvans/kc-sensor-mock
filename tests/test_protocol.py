@@ -71,6 +71,34 @@ def test_rejects_out_of_range_uint16_value():
         encode_record(record)
 
 
+def test_rejects_out_of_range_device_id():
+    record = make_record().replace(device_id=65_536)
+
+    with pytest.raises(ValueError, match="uint16|device_id"):
+        encode_record(record)
+
+
+def test_rejects_out_of_range_sequence_number():
+    record = make_record().replace(sequence_number=2**32)
+
+    with pytest.raises(ValueError, match="uint32|sequence_number"):
+        encode_record(record)
+
+
+def test_rejects_out_of_range_sensor_timestamp_us():
+    record = make_record().replace(sensor_timestamp_us=2**64)
+
+    with pytest.raises(ValueError, match="uint64|sensor_timestamp_us"):
+        encode_record(record)
+
+
+def test_rejects_out_of_range_gps_latitude_e7():
+    record = make_record().replace(gps_latitude_e7=2**31)
+
+    with pytest.raises(ValueError, match="int32|gps_latitude_e7"):
+        encode_record(record)
+
+
 def test_rejects_partial_record_decode():
     with pytest.raises(ValueError, match="632"):
         decode_record(b"\x00" * 631)
