@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import struct
 from dataclasses import dataclass, replace
 
@@ -28,33 +29,51 @@ class SensorRecord:
     gps_altitude_mm: int
     values: tuple[int, ...]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "values", tuple(self.values))
+
     def replace(self, **changes: object) -> SensorRecord:
         return replace(self, **changes)
 
 
+def _round_half_away_from_zero(value: float) -> int:
+    magnitude = math.floor(abs(value) + 0.5)
+    return magnitude if value >= 0 else -magnitude
+
+
 def scale_latitude_e7(value: float) -> int:
-    return round(value * 10_000_000)
+    return _round_half_away_from_zero(value * 10_000_000)
 
 
 def scale_longitude_e7(value: float) -> int:
-    return round(value * 10_000_000)
+    return _round_half_away_from_zero(value * 10_000_000)
 
 
 def scale_altitude_mm(value: float) -> int:
-    return round(value * 1_000)
+    return _round_half_away_from_zero(value * 1_000)
 
 
-def _validate_uint_range(name: str, value: int, bits: int) -> None:
+def _validate_int_value(name: str, value: object) -> int:
+    if type(value) is not int:
+        raise ValueError(f"{name} must be an int")
+    return value
+
+
+def _validate_uint_range(name: str, value: object, bits: int) -> int:
+    int_value = _validate_int_value(name, value)
     max_value = (1 << bits) - 1
-    if not 0 <= value <= max_value:
+    if not 0 <= int_value <= max_value:
         raise ValueError(f"{name} must fit in uint{bits}")
+    return int_value
 
 
-def _validate_int_range(name: str, value: int, bits: int) -> None:
+def _validate_int_range(name: str, value: object, bits: int) -> int:
+    int_value = _validate_int_value(name, value)
     min_value = -(1 << (bits - 1))
     max_value = (1 << (bits - 1)) - 1
-    if not min_value <= value <= max_value:
+    if not min_value <= int_value <= max_value:
         raise ValueError(f"{name} must fit in int{bits}")
+    return int_value
 
 
 def validate_record(record: SensorRecord) -> None:
@@ -67,6 +86,7 @@ def validate_record(record: SensorRecord) -> None:
     _validate_int_range("gps_longitude_e7", record.gps_longitude_e7, 32)
     _validate_int_range("gps_altitude_mm", record.gps_altitude_mm, 32)
 
+    _validate_int_value("measurement_type", record.measurement_type)
     if record.measurement_type not in VALID_MEASUREMENT_TYPES:
         raise ValueError(
             f"measurement_type must be one of {sorted(VALID_MEASUREMENT_TYPES)}"
@@ -76,7 +96,8 @@ def validate_record(record: SensorRecord) -> None:
         raise ValueError(f"values must contain exactly {SENSOR_VALUES_COUNT} items")
 
     for value in record.values:
-        if not 0 <= value <= 65_535:
+        int_value = _validate_int_value("values item", value)
+        if not 0 <= int_value <= 65_535:
             raise ValueError("values must contain uint16 items")
 
 
