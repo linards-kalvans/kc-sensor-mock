@@ -34,16 +34,21 @@ class SensorServer:
             self._stop_event.clear()
             listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            listener.bind((self._config.host, self._config.port))
-            listener.listen(1)
-            listener.settimeout(0.2)
-            self._listener = listener
-            self.host, self.port = listener.getsockname()[:2]
+            try:
+                listener.bind((self._config.host, self._config.port))
+                listener.listen(1)
+                listener.settimeout(0.2)
+                self._listener = listener
+                self.host, self.port = listener.getsockname()[:2]
 
-            if self._config.capture_path is not None:
-                capture_path = self._config.capture_path
-                capture_path.parent.mkdir(parents=True, exist_ok=True)
-                self._capture_file = capture_path.open("wb")
+                if self._config.capture_path is not None:
+                    capture_path = self._config.capture_path
+                    capture_path.parent.mkdir(parents=True, exist_ok=True)
+                    self._capture_file = capture_path.open("wb")
+            except Exception:
+                self._listener = None
+                listener.close()
+                raise
 
             self._producer_thread = threading.Thread(
                 target=self._produce,
@@ -81,6 +86,11 @@ class SensorServer:
         if capture_file is not None:
             capture_file.close()
 
+        if self._capture_error is not None:
+            capture_error = self._capture_error
+            self._capture_error = None
+            raise RuntimeError("capture write failed") from capture_error
+
     def _produce(self) -> None:
         while not self._stop_event.is_set():
             record = self._generator.next_record(self._ring_buffer.dropped_total)
@@ -110,17 +120,18 @@ class SensorServer:
                 time.sleep(0.001)
                 continue
 
+            if not self._write_capture_payload(payload):
+                return
+
             try:
                 client_socket.sendall(payload)
             except OSError:
                 return
 
-            self._write_capture_payload(payload)
-
-    def _write_capture_payload(self, payload: bytes) -> None:
+    def _write_capture_payload(self, payload: bytes) -> bool:
         capture_file = self._capture_file
         if capture_file is None:
-            return
+            return True
 
         try:
             capture_file.write(payload)
@@ -128,3 +139,6 @@ class SensorServer:
         except OSError as exc:
             self._capture_error = exc
             self._stop_event.set()
+            return False
+
+        return True

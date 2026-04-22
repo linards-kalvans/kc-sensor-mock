@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -9,6 +10,27 @@ from kc_sensor_mock.client import read_records
 from kc_sensor_mock.config import MockConfig
 from kc_sensor_mock.protocol import MEASUREMENT_TYPE_SPECTRA, SensorRecord
 from kc_sensor_mock.server import SensorServer
+
+
+def _record(
+    sequence_number: int,
+    dropped_records_total: int,
+    sensor_timestamp_us: int,
+    gps_timestamp_us: int,
+    values: tuple[int, ...] = tuple(range(296)),
+) -> SensorRecord:
+    return SensorRecord(
+        device_id=1,
+        measurement_type=MEASUREMENT_TYPE_SPECTRA,
+        sequence_number=sequence_number,
+        dropped_records_total=dropped_records_total,
+        sensor_timestamp_us=sensor_timestamp_us,
+        gps_timestamp_us=gps_timestamp_us,
+        gps_latitude_e7=1,
+        gps_longitude_e7=2,
+        gps_altitude_mm=3,
+        values=values,
+    )
 
 
 def test_server_streams_records_to_reference_client() -> None:
@@ -50,30 +72,8 @@ def test_validate_record_stream_rejects_duplicate_sequence() -> None:
     from kc_sensor_mock.client import validate_record_stream
 
     records = [
-        SensorRecord(
-            device_id=1,
-            measurement_type=MEASUREMENT_TYPE_SPECTRA,
-            sequence_number=10,
-            dropped_records_total=0,
-            sensor_timestamp_us=100,
-            gps_timestamp_us=100,
-            gps_latitude_e7=1,
-            gps_longitude_e7=2,
-            gps_altitude_mm=3,
-            values=tuple(range(296)),
-        ),
-        SensorRecord(
-            device_id=1,
-            measurement_type=MEASUREMENT_TYPE_SPECTRA,
-            sequence_number=10,
-            dropped_records_total=0,
-            sensor_timestamp_us=101,
-            gps_timestamp_us=101,
-            gps_latitude_e7=1,
-            gps_longitude_e7=2,
-            gps_altitude_mm=3,
-            values=tuple(range(296)),
-        ),
+        _record(10, 0, 100, 100),
+        _record(10, 0, 101, 101),
     ]
 
     with pytest.raises(ValueError, match="sequence"):
@@ -84,53 +84,29 @@ def test_validate_record_stream_rejects_non_increasing_timestamps() -> None:
     from kc_sensor_mock.client import validate_record_stream
 
     records = [
-        SensorRecord(
-            device_id=1,
-            measurement_type=MEASUREMENT_TYPE_SPECTRA,
-            sequence_number=10,
-            dropped_records_total=0,
-            sensor_timestamp_us=100,
-            gps_timestamp_us=100,
-            gps_latitude_e7=1,
-            gps_longitude_e7=2,
-            gps_altitude_mm=3,
-            values=tuple(range(296)),
-        ),
-        SensorRecord(
-            device_id=1,
-            measurement_type=MEASUREMENT_TYPE_SPECTRA,
-            sequence_number=11,
-            dropped_records_total=0,
-            sensor_timestamp_us=100,
-            gps_timestamp_us=99,
-            gps_latitude_e7=1,
-            gps_longitude_e7=2,
-            gps_altitude_mm=3,
-            values=tuple(range(296)),
-        ),
+        _record(10, 0, 100, 100),
+        _record(11, 0, 100, 99),
     ]
 
     with pytest.raises(ValueError, match="timestamp"):
         validate_record_stream(records)
 
 
-def test_validate_record_stream_rejects_wrong_values_length() -> None:
+def test_validate_record_stream_accepts_equal_timestamps() -> None:
     from kc_sensor_mock.client import validate_record_stream
 
     records = [
-        SensorRecord(
-            device_id=1,
-            measurement_type=MEASUREMENT_TYPE_SPECTRA,
-            sequence_number=10,
-            dropped_records_total=0,
-            sensor_timestamp_us=100,
-            gps_timestamp_us=100,
-            gps_latitude_e7=1,
-            gps_longitude_e7=2,
-            gps_altitude_mm=3,
-            values=tuple(range(295)),
-        )
+        _record(10, 0, 100, 100),
+        _record(11, 0, 100, 100),
     ]
+
+    validate_record_stream(records)
+
+
+def test_validate_record_stream_rejects_wrong_values_length() -> None:
+    from kc_sensor_mock.client import validate_record_stream
+
+    records = [_record(10, 0, 100, 100, values=tuple(range(295)))]
 
     with pytest.raises(ValueError, match="296"):
         validate_record_stream(records)
@@ -154,13 +130,115 @@ def test_capture_write_failure_stops_server(monkeypatch, tmp_path: Path) -> None
 
     server = SensorServer(config)
 
-    failing_capture = Mock()
-    failing_capture.write.side_effect = OSError("disk full")
-    failing_capture.flush.return_value = None
-    monkeypatch.setattr(server, "_capture_file", failing_capture)
-    monkeypatch.setattr(server, "_stop_event", Mock(set=Mock()))
+    payloads: list[bytes] = []
 
-    server._write_capture_payload(b"abc")
+    class FakeRingBuffer:
+        def __init__(self) -> None:
+            self._items = [b"abc"]
 
-    assert server._stop_event.set.called
+        def pop(self) -> bytes | None:
+            if self._items:
+                return self._items.pop(0)
+            return None
+
+    class FakeCapture:
+        def write(self, payload: bytes) -> None:
+            payloads.append(payload)
+            raise OSError("disk full")
+
+        def flush(self) -> None:
+            raise AssertionError("flush should not be called after write failure")
+
+    fake_socket = Mock()
+    fake_socket.sendall = Mock()
+    monkeypatch.setattr(server, "_ring_buffer", FakeRingBuffer())
+    monkeypatch.setattr(server, "_capture_file", FakeCapture())
+
+    server._stream_to_client(fake_socket)
+
+    assert payloads == [b"abc"]
+    fake_socket.sendall.assert_not_called()
+    assert server._stop_event.is_set()
     assert server._capture_error is not None
+
+
+def test_stop_surfaces_capture_error(monkeypatch, tmp_path: Path) -> None:
+    config = MockConfig(
+        host="127.0.0.1",
+        port=0,
+        device_id=1,
+        measurement_type=MEASUREMENT_TYPE_SPECTRA,
+        rate_hz=1000,
+        mode="burst",
+        ring_buffer_capacity=16,
+        initial_sequence_number=0,
+        gps_latitude=56.6718316,
+        gps_longitude=24.2391946,
+        gps_altitude_m=35.0,
+        capture_path=tmp_path / "capture.bin",
+    )
+
+    server = SensorServer(config)
+    server._capture_error = OSError("disk full")
+
+    with pytest.raises(RuntimeError, match="capture"):
+        server.stop()
+
+
+def test_start_cleans_up_listener_when_capture_open_fails(monkeypatch) -> None:
+    config = MockConfig(
+        host="127.0.0.1",
+        port=0,
+        device_id=1,
+        measurement_type=MEASUREMENT_TYPE_SPECTRA,
+        rate_hz=1000,
+        mode="burst",
+        ring_buffer_capacity=16,
+        initial_sequence_number=0,
+        gps_latitude=56.6718316,
+        gps_longitude=24.2391946,
+        gps_altitude_m=35.0,
+        capture_path=Path("capture.bin"),
+    )
+
+    server = SensorServer(config)
+    close_calls: list[bool] = []
+
+    class FakeListener:
+        def setsockopt(self, *_args: object) -> None:
+            pass
+
+        def getsockname(self) -> tuple[str, int]:
+            return ("127.0.0.1", 12345)
+
+        def settimeout(self, _timeout: float) -> None:
+            pass
+
+        def listen(self, _backlog: int) -> None:
+            pass
+
+        def bind(self, _address: tuple[str, int]) -> None:
+            pass
+
+        def close(self) -> None:
+            close_calls.append(True)
+
+    class FakeSocketModule:
+        AF_INET = socket.AF_INET
+        SOCK_STREAM = socket.SOCK_STREAM
+        SOL_SOCKET = socket.SOL_SOCKET
+        SO_REUSEADDR = socket.SO_REUSEADDR
+
+        def socket(self, *_args: object, **_kwargs: object) -> FakeListener:
+            return FakeListener()
+
+    monkeypatch.setattr("kc_sensor_mock.server.socket", FakeSocketModule())
+    monkeypatch.setattr(
+        "pathlib.Path.open",
+        lambda self, mode: (_ for _ in ()).throw(OSError("cannot open capture")),
+    )
+
+    with pytest.raises(OSError, match="cannot open capture"):
+        server.start()
+
+    assert close_calls == [True]

@@ -61,9 +61,9 @@ def validate_record_stream(records: list[SensorRecord]) -> None:
         if dropped_delta > 0x7FFFFFFF:
             raise ValueError("dropped_records_total moved backwards")
 
-        if current.sensor_timestamp_us <= previous.sensor_timestamp_us:
-            raise ValueError("sensor_timestamp_us must strictly increase")
-        if current.gps_timestamp_us <= previous.gps_timestamp_us:
-            raise ValueError("gps_timestamp_us must strictly increase")
+        if current.sensor_timestamp_us < previous.sensor_timestamp_us:
+            raise ValueError("sensor_timestamp_us must not decrease")
+        if current.gps_timestamp_us < previous.gps_timestamp_us:
+            raise ValueError("gps_timestamp_us must not decrease")
 
         previous = current
