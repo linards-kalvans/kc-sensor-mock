@@ -1312,7 +1312,7 @@ def test_stream_rate_manual():
 Run:
 
 ```bash
-uv run pytest tests/perf/test_stream_rate.py -s -v
+uv run pytest tests/perf/test_stream_rate.py --run-perf -s -v
 ```
 
 Expected: PASS and prints achieved records per second plus bytes per second. This test is not part of the normal reliability gate because OS scheduling can vary.
@@ -1378,7 +1378,7 @@ uv run kc-sensor-client --host 127.0.0.1 --port 9000 --count 10
 
 ```bash
 uv run pytest tests -v --ignore=tests/perf
-uv run pytest tests/perf/test_stream_rate.py -s -v
+uv run pytest tests/perf/test_stream_rate.py --run-perf -s -v
 ```
 ```
 
@@ -1408,7 +1408,7 @@ Expected: both commands print help text and exit with code 0.
 Run:
 
 ```bash
-uv run pytest tests/perf/test_stream_rate.py -s -v
+uv run pytest tests/perf/test_stream_rate.py --run-perf -s -v
 ```
 
 Expected: PASS and reports throughput.
