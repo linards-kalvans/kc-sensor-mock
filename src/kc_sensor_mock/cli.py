@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import signal
+import sys
 import threading
 import tomllib
 from pathlib import Path
@@ -72,9 +73,26 @@ def _server_overrides(args: argparse.Namespace) -> dict[str, object]:
     return overrides
 
 
+def _stdin_shutdown_watcher(stop_event: threading.Event, stdin: object | None) -> threading.Thread | None:
+    if stdin is None or getattr(stdin, "closed", False):
+        return None
+
+    def _watch_stdin() -> None:
+        try:
+            stdin.read()
+        except (AttributeError, OSError, ValueError):
+            return
+        stop_event.set()
+
+    watcher = threading.Thread(target=_watch_stdin, name="stdin-shutdown-watcher", daemon=True)
+    watcher.start()
+    return watcher
+
+
 def _wait_for_shutdown(server: SensorServer) -> None:
     stop_event = threading.Event()
     previous_sigterm = None
+    _stdin_shutdown_watcher(stop_event, sys.stdin)
 
     def _handle_sigterm(signum: int, frame: object) -> None:
         stop_event.set()

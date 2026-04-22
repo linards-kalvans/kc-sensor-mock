@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from dataclasses import replace
 from pathlib import Path
 
@@ -105,6 +106,30 @@ def test_run_server_cli_loads_config_and_waits_without_stdin(monkeypatch, capsys
     assert captured["waited"] is True
     assert captured["stopped"] is True
     assert "streaming on 127.0.0.1:4321" in capsys.readouterr().out
+
+
+def test_stdin_shutdown_watcher_sets_stop_event_on_eof() -> None:
+    stop_event = threading.Event()
+
+    class FakeStdin:
+        def read(self, size: int = -1) -> str:
+            return ""
+
+    watcher = cli._stdin_shutdown_watcher(stop_event, FakeStdin())
+    assert watcher is not None
+    watcher.join(timeout=1)
+
+    assert stop_event.is_set()
+    assert not watcher.is_alive()
+
+
+def test_stdin_shutdown_watcher_ignores_missing_stdin() -> None:
+    stop_event = threading.Event()
+
+    watcher = cli._stdin_shutdown_watcher(stop_event, None)
+
+    assert watcher is None
+    assert not stop_event.is_set()
 
 
 def test_run_server_cli_reports_config_errors_cleanly(monkeypatch, capsys) -> None:
