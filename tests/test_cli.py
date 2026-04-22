@@ -27,6 +27,15 @@ def test_server_parser_defaults_use_repo_root_config_path() -> None:
     assert args.capture_path is None
 
 
+def test_server_help_shows_default_values() -> None:
+    parser = cli.server_parser()
+    help_text = parser.format_help()
+
+    assert "(default:" in help_text
+    assert "/configs/default.toml" in help_text
+    assert help_text.count("(default: None)") >= 1
+
+
 def test_server_parser_preserves_empty_capture_path_string() -> None:
     parser = cli.server_parser()
     args = parser.parse_args(["--capture-path", ""])
@@ -41,6 +50,15 @@ def test_client_parser_defaults() -> None:
     assert args.host == "127.0.0.1"
     assert args.port == 9000
     assert args.count == 10
+
+
+def test_client_help_shows_default_values() -> None:
+    parser = cli.client_parser()
+    help_text = parser.format_help()
+
+    assert "(default: 127.0.0.1)" in help_text
+    assert "(default: 9000)" in help_text
+    assert "(default: 10)" in help_text
 
 
 def test_client_parser_rejects_nonpositive_count() -> None:

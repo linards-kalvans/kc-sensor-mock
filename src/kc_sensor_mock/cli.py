@@ -27,16 +27,31 @@ def server_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kc-sensor-mock",
         description="Mock STM-style sensor stream server.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--config", type=Path, default=_default_config_path())
-    parser.add_argument("--host")
-    parser.add_argument("--port", type=int)
-    parser.add_argument("--device-id", type=int, dest="device_id")
-    parser.add_argument("--measurement-type", type=int, dest="measurement_type")
-    parser.add_argument("--rate-hz", type=int, dest="rate_hz")
-    parser.add_argument("--mode", choices=("rate-controlled", "burst"))
-    parser.add_argument("--ring-buffer-capacity", type=int, dest="ring_buffer_capacity")
-    parser.add_argument("--capture-path", type=str, dest="capture_path")
+    parser.add_argument("--config", type=Path, default=_default_config_path(), help="TOML config file to load")
+    parser.add_argument("--host", help="TCP bind host override")
+    parser.add_argument("--port", type=int, help="TCP bind port override")
+    parser.add_argument("--device-id", type=int, dest="device_id", help="Sensor device identifier override")
+    parser.add_argument(
+        "--measurement-type",
+        type=int,
+        dest="measurement_type",
+        help="Measurement type override",
+    )
+    parser.add_argument("--rate-hz", type=int, dest="rate_hz", help="Producer rate override")
+    parser.add_argument(
+        "--mode",
+        choices=("rate-controlled", "burst"),
+        help="Generator mode override",
+    )
+    parser.add_argument(
+        "--ring-buffer-capacity",
+        type=int,
+        dest="ring_buffer_capacity",
+        help="Ring buffer capacity override",
+    )
+    parser.add_argument("--capture-path", type=str, dest="capture_path", help="Capture file path override")
     return parser
 
 
@@ -44,10 +59,11 @@ def client_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kc-sensor-client",
         description="Reference client for the sensor mock stream.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=9000)
-    parser.add_argument("--count", type=_positive_int, default=10)
+    parser.add_argument("--host", default="127.0.0.1", help="TCP host to connect to")
+    parser.add_argument("--port", type=int, default=9000, help="TCP port to connect to")
+    parser.add_argument("--count", type=_positive_int, default=10, help="Number of records to read")
     return parser
 
 

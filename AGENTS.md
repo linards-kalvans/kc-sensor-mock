@@ -42,6 +42,8 @@ Python is used for the initial mock implementation. Use `uv` for Python project 
 - Keep this `AGENTS.md` updated when scope, architecture, workflow, tooling, or key constraints change.
 - Use TDD for implementation work.
 - Testing is required for implementation completion. Run relevant tests or explicitly report why they could not be run.
+- For CLI troubleshooting, verify the live socket state with `ss` and `lsof` before treating `Address already in use` as an application bug.
+- Keep argparse help output informative enough to show relevant option defaults for operator-facing commands.
 - Treat `tests/perf/` as a manual performance lane and keep it excluded from the normal reliability gate by default with the `--run-perf` opt-in.
 - Do not add TCP frame headers, record delimiters, or per-record checksums to the default stream; the protocol is repeated fixed-size binary records.
 - Treat TCP as the transport-level reliability mechanism. Application-level recovery is reconnect plus `sequence_number` and `dropped_records_total` validation.
