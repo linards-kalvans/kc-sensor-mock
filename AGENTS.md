@@ -12,6 +12,7 @@ Out of scope for v1: multi-client fan-out, command/control protocol, dynamic TCP
 
 - Define the binary sensor record contract and golden test vectors.
 - Implement Python packing/unpacking for the fixed record.
+- Validate and normalize the fixed 296-value sample spectra data before generator work.
 - Implement sample-like record generation with configurable rate and burst modes.
 - Implement a drop-oldest ring buffer.
 - Implement single-client TCP streaming.
