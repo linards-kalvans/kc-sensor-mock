@@ -168,6 +168,7 @@ class SensorServer:
 
         try:
             capture_file.truncate(position)
+            capture_file.seek(position)
             capture_file.flush()
         except OSError as exc:
             self._capture_error = exc

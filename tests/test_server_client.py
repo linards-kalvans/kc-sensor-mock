@@ -157,6 +157,18 @@ def test_capture_write_failure_stops_server(monkeypatch, tmp_path: Path) -> None
         def truncate(self, position: int) -> None:
             state["size"] = position
 
+        def seek(self, position: int) -> int:
+            state["size"] = position
+            return position
+
+        def seek(self, position: int) -> int:
+            state["size"] = position
+            return position
+
+        def seek(self, position: int) -> int:
+            state["size"] = position
+            return position
+
     fake_socket = Mock()
     fake_socket.sendall = Mock()
     monkeypatch.setattr(server, "_ring_buffer", FakeRingBuffer())
@@ -213,6 +225,10 @@ def test_capture_rolls_back_when_send_fails(monkeypatch, tmp_path: Path) -> None
         def truncate(self, position: int) -> None:
             state["size"] = position
 
+        def seek(self, position: int) -> int:
+            state["size"] = position
+            return position
+
     fake_socket = Mock()
     fake_socket.sendall.side_effect = OSError("client disconnected")
     monkeypatch.setattr(server, "_ring_buffer", FakeRingBuffer())
@@ -225,6 +241,36 @@ def test_capture_rolls_back_when_send_fails(monkeypatch, tmp_path: Path) -> None
     assert server._capture_error is None
     assert server._stop_event.is_set() is False
     fake_socket.sendall.assert_called_once_with(b"payload")
+
+
+def test_capture_rollback_resets_file_position(tmp_path: Path) -> None:
+    capture_path = tmp_path / "capture.bin"
+    config = MockConfig(
+        host="127.0.0.1",
+        port=0,
+        device_id=1,
+        measurement_type=MEASUREMENT_TYPE_SPECTRA,
+        rate_hz=1000,
+        mode="burst",
+        ring_buffer_capacity=16,
+        initial_sequence_number=0,
+        gps_latitude=56.6718316,
+        gps_longitude=24.2391946,
+        gps_altitude_m=35.0,
+        capture_path=capture_path,
+    )
+
+    server = SensorServer(config)
+
+    with capture_path.open("wb+") as capture_file:
+        server._capture_file = capture_file
+        capture_file.write(b"first")
+        capture_file.flush()
+        server._rollback_capture_payload(0)
+        capture_file.write(b"second")
+        capture_file.flush()
+
+    assert capture_path.read_bytes() == b"second"
 
 
 def test_stop_surfaces_capture_error(monkeypatch, tmp_path: Path) -> None:
