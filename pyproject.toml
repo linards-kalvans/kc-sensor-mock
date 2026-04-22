@@ -1,0 +1,23 @@
+[project]
+name = "kc-sensor-mock"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Linards Kalvāns", email = "linards.kalvans@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+kc-sensor-mock = "kc_sensor_mock.cli:run_server_cli"
+kc-sensor-client = "kc_sensor_mock.cli:run_client_cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
