@@ -59,6 +59,15 @@ def test_sequence_wraps_to_zero_after_uint32_max(monkeypatch) -> None:
     assert encode_record(second)
 
 
+def test_dropped_records_total_wraps_to_uint32(monkeypatch) -> None:
+    monkeypatch.setattr(generator_module, "epoch_us_now", lambda: 1_778_000_000_000_000)
+
+    record = RecordGenerator(config()).next_record(dropped_records_total=2**32)
+
+    assert record.dropped_records_total == 0
+    assert encode_record(record)
+
+
 def test_epoch_us_now_uses_time_ns(monkeypatch) -> None:
     class FakeTime:
         @staticmethod
@@ -68,6 +77,20 @@ def test_epoch_us_now_uses_time_ns(monkeypatch) -> None:
     monkeypatch.setattr(generator_module, "time", FakeTime, raising=False)
 
     assert generator_module.epoch_us_now() == 1_234_567_890_123_456
+
+
+def test_initial_sequence_number_does_not_affect_timestamps(monkeypatch) -> None:
+    timestamps = iter([100, 100])
+    monkeypatch.setattr(generator_module, "epoch_us_now", lambda: next(timestamps))
+
+    generator = RecordGenerator(replace(config(), initial_sequence_number=2**32 - 1))
+    first = generator.next_record(dropped_records_total=0)
+    second = generator.next_record(dropped_records_total=0)
+
+    assert first.sensor_timestamp_us == 100
+    assert second.sensor_timestamp_us == 101
+    assert first.gps_timestamp_us == 100
+    assert second.gps_timestamp_us == 101
 
 
 def test_sequence_and_timestamps_increase(monkeypatch) -> None:
