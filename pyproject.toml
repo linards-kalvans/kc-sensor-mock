@@ -1,7 +1,7 @@
 [project]
 name = "kc-sensor-mock"
 version = "0.1.0"
-description = "Add your description here"
+description = "Mock STM-style sensor streaming package for TCP connector development."
 readme = "README.md"
 authors = [
     { name = "Linards Kalvāns", email = "linards.kalvans@gmail.com" }
