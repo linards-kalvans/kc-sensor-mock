@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from kc_sensor_mock.config import MockConfig
-from kc_sensor_mock.protocol import MEASUREMENT_TYPE_SPECTRA, SensorRecord
+from kc_sensor_mock.protocol import MEASUREMENT_TYPE_SPECTRA, SensorRecord, encode_record
 from kc_sensor_mock import generator as generator_module
 from kc_sensor_mock.generator import RecordGenerator
+from kc_sensor_mock.sample_data import SAMPLE_VALUES
 
 
 def config() -> MockConfig:
@@ -27,6 +30,7 @@ def test_next_record_uses_config_and_sample_values(monkeypatch) -> None:
     monkeypatch.setattr(generator_module, "epoch_us_now", lambda: 1_778_000_000_000_000)
 
     record = RecordGenerator(config()).next_record(dropped_records_total=3)
+    encoded = encode_record(record)
 
     assert isinstance(record, SensorRecord)
     assert record.device_id == 1
@@ -38,7 +42,32 @@ def test_next_record_uses_config_and_sample_values(monkeypatch) -> None:
     assert record.gps_latitude_e7 == 566_718_316
     assert record.gps_longitude_e7 == 242_391_946
     assert record.gps_altitude_mm == 35_000
-    assert len(record.values) == 296
+    assert record.values == SAMPLE_VALUES
+    assert len(encoded) == 632
+
+
+def test_sequence_wraps_to_zero_after_uint32_max(monkeypatch) -> None:
+    monkeypatch.setattr(generator_module, "epoch_us_now", lambda: 1_778_000_000_000_000)
+
+    generator = RecordGenerator(replace(config(), initial_sequence_number=2**32 - 1))
+    first = generator.next_record(dropped_records_total=0)
+    second = generator.next_record(dropped_records_total=0)
+
+    assert first.sequence_number == 2**32 - 1
+    assert second.sequence_number == 0
+    assert encode_record(first)
+    assert encode_record(second)
+
+
+def test_epoch_us_now_uses_time_ns(monkeypatch) -> None:
+    class FakeTime:
+        @staticmethod
+        def time_ns() -> int:
+            return 1_234_567_890_123_456_789
+
+    monkeypatch.setattr(generator_module, "time", FakeTime, raising=False)
+
+    assert generator_module.epoch_us_now() == 1_234_567_890_123_456
 
 
 def test_sequence_and_timestamps_increase(monkeypatch) -> None:

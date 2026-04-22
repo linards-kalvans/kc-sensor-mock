@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import time
 
 from kc_sensor_mock.config import MockConfig
 from kc_sensor_mock.protocol import (
@@ -13,7 +13,7 @@ from kc_sensor_mock.sample_data import SAMPLE_VALUES
 
 
 def epoch_us_now() -> int:
-    return int(datetime.now(timezone.utc).timestamp() * 1_000_000)
+    return time.time_ns() // 1_000
 
 
 class RecordGenerator:
@@ -40,5 +40,5 @@ class RecordGenerator:
             values=tuple(SAMPLE_VALUES),
         )
 
-        self._next_sequence_number += 1
+        self._next_sequence_number = (self._next_sequence_number + 1) & 0xFFFFFFFF
         return record
