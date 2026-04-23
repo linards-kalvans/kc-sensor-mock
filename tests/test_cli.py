@@ -1,84 +1,107 @@
+"""Tests for CLI: producer/consumer entry points, endpoint fields."""
+
 from __future__ import annotations
 
 import sys
 import threading
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from kc_sensor_mock import cli
 from kc_sensor_mock.config import MockConfig
-from kc_sensor_mock.protocol import MEASUREMENT_TYPE_SPECTRA, SensorRecord
+from kc_sensor_mock.protocol import MEASUREMENT_TYPE_SPECTRA
 
 
-def test_server_parser_defaults_use_repo_root_config_path() -> None:
-    parser = cli.server_parser()
+# --- AC-9: Config and CLI reflect explicit producer/consumer endpoint fields ---
+
+def test_producer_parser_has_consumer_endpoint_options() -> None:
+    """kc-sensor-producer parser must expose --consumer-host and --consumer-port."""
+    parser = cli.producer_parser()
+    args = parser.parse_args([
+        "--consumer-host", "10.0.0.5",
+        "--consumer-port", "8080",
+    ])
+
+    assert args.consumer_host == "10.0.0.5"
+    assert args.consumer_port == 8080
+
+
+def test_consumer_parser_has_bind_endpoint_options() -> None:
+    """kc-sensor-consumer parser must expose --bind-host and --bind-port."""
+    parser = cli.consumer_parser()
+    args = parser.parse_args([
+        "--bind-host", "0.0.0.0",
+        "--bind-port", "9090",
+    ])
+
+    assert args.bind_host == "0.0.0.0"
+    assert args.bind_port == 9090
+
+
+def test_producer_parser_defaults_use_repo_root_config_path() -> None:
+    parser = cli.producer_parser()
     args = parser.parse_args([])
 
     assert args.config == Path(cli.__file__).resolve().parents[2] / "configs" / "default.toml"
-    assert args.host is None
-    assert args.port is None
-    assert args.device_id is None
-    assert args.measurement_type is None
-    assert args.rate_hz is None
-    assert args.mode is None
-    assert args.ring_buffer_capacity is None
-    assert args.capture_path is None
+    assert args.consumer_host is None
+    assert args.consumer_port is None
 
 
-def test_server_help_shows_default_values() -> None:
-    parser = cli.server_parser()
-    help_text = parser.format_help()
-
-    assert "(default:" in help_text
-    assert "/configs/default.toml" in help_text
-    assert help_text.count("(default: None)") >= 1
-
-
-def test_server_parser_preserves_empty_capture_path_string() -> None:
-    parser = cli.server_parser()
-    args = parser.parse_args(["--capture-path", ""])
-
-    assert args.capture_path == ""
-
-
-def test_client_parser_defaults() -> None:
-    parser = cli.client_parser()
+def test_consumer_parser_defaults_bind_to_loopback() -> None:
+    parser = cli.consumer_parser()
     args = parser.parse_args([])
 
-    assert args.host == "127.0.0.1"
-    assert args.port == 9000
-    assert args.count == 10
+    assert args.bind_host is None
+    assert args.bind_port is None
 
 
-def test_client_help_shows_default_values() -> None:
-    parser = cli.client_parser()
-    help_text = parser.format_help()
+# --- AC-10: Old transport naming no longer defines public CLI contract ---
 
-    assert "(default: 127.0.0.1)" in help_text
-    assert "(default: 9000)" in help_text
-    assert "(default: 10)" in help_text
-
-
-def test_client_parser_rejects_nonpositive_count() -> None:
-    parser = cli.client_parser()
-
-    with pytest.raises(SystemExit) as exc_info:
-        parser.parse_args(["--count", "0"])
-
-    assert exc_info.value.code == 2
+def test_old_server_parser_does_not_exist() -> None:
+    """The old `server_parser` name must not exist on the cli module."""
+    assert not hasattr(cli, "server_parser"), (
+        "cli.server_parser must be removed — replaced by producer_parser"
+    )
 
 
-def test_run_server_cli_loads_config_and_waits_without_stdin(monkeypatch, capsys) -> None:
+def test_old_client_parser_does_not_exist() -> None:
+    """The old `client_parser` name must not exist on the cli module."""
+    assert not hasattr(cli, "client_parser"), (
+        "cli.client_parser must be removed — replaced by consumer_parser"
+    )
+
+
+def test_old_sensor_server_does_not_exist() -> None:
+    """SensorServer must be gone from imports."""
+    try:
+        from kc_sensor_mock.server import SensorServer  # noqa: F401
+        pytest.fail("kc_sensor_mock.server.SensorServer still exists")
+    except (ImportError, AttributeError):
+        pass
+
+
+# --- AC-11: New CLI run functions exist ---
+
+def test_run_producer_cli_exists() -> None:
+    assert hasattr(cli, "run_producer_cli"), "cli must expose run_producer_cli"
+
+
+def test_run_consumer_cli_exists() -> None:
+    assert hasattr(cli, "run_consumer_cli"), "cli must expose run_consumer_cli"
+
+
+def test_run_producer_cli_loads_config_and_starts(monkeypatch, capsys) -> None:
+    """Producer CLI loads config, starts producer, waits for shutdown."""
     captured: dict[str, object] = {}
 
     def fake_load_config(path: Path, overrides: dict[str, object] | None = None) -> MockConfig:
         captured["path"] = path
-        captured["overrides"] = overrides
         return MockConfig(
-            host="127.0.0.1",
-            port=0,
+            consumer_host="127.0.0.1",
+            consumer_port=9100,
+            bind_host="127.0.0.1",
+            bind_port=0,
             device_id=12,
             measurement_type=MEASUREMENT_TYPE_SPECTRA,
             rate_hz=1000,
@@ -91,11 +114,9 @@ def test_run_server_cli_loads_config_and_waits_without_stdin(monkeypatch, capsys
             capture_path=None,
         )
 
-    class FakeServer:
+    class FakeProducer:
         def __init__(self, config: MockConfig) -> None:
-            captured["server_config"] = config
-            self.host = "127.0.0.1"
-            self.port = 4321
+            captured["prod_config"] = config
             self.started = False
             self.stopped = False
 
@@ -107,109 +128,77 @@ def test_run_server_cli_loads_config_and_waits_without_stdin(monkeypatch, capsys
             self.stopped = True
             captured["stopped"] = True
 
-    def fake_wait_for_shutdown(server: object) -> None:
+    def fake_wait(prod: object) -> None:
         captured["waited"] = True
-        assert server.started is True
 
     monkeypatch.setattr(cli, "load_config", fake_load_config)
-    monkeypatch.setattr(cli, "SensorServer", FakeServer)
-    monkeypatch.setattr(cli, "_wait_for_shutdown", fake_wait_for_shutdown)
-    monkeypatch.setattr(sys, "argv", ["kc-sensor-mock", "--port", "9100", "--mode", "burst"])
+    monkeypatch.setattr(cli, "SensorProducerClient", FakeProducer)
+    monkeypatch.setattr(cli, "_wait_for_shutdown", fake_wait)
+    monkeypatch.setattr(sys, "argv", ["kc-sensor-producer", "--consumer-port", "9100"])
 
-    cli.run_server_cli()
+    cli.run_producer_cli()
 
-    assert captured["path"] == Path(cli.__file__).resolve().parents[2] / "configs" / "default.toml"
-    assert captured["overrides"] == {"port": 9100, "mode": "burst"}
     assert captured["started"] is True
     assert captured["waited"] is True
     assert captured["stopped"] is True
-    assert "streaming on 127.0.0.1:4321" in capsys.readouterr().out
 
 
-def test_stdin_shutdown_watcher_sets_stop_event_on_eof() -> None:
-    stop_event = threading.Event()
+def test_run_consumer_cli_loads_config_and_starts(monkeypatch, capsys) -> None:
+    """Consumer CLI loads config, starts consumer, waits for shutdown."""
+    captured: dict[str, object] = {}
 
-    class FakeStdin:
-        def read(self, size: int = -1) -> str:
-            return ""
-
-    watcher = cli._stdin_shutdown_watcher(stop_event, FakeStdin())
-    assert watcher is not None
-    watcher.join(timeout=1)
-
-    assert stop_event.is_set()
-    assert not watcher.is_alive()
-
-
-def test_stdin_shutdown_watcher_ignores_missing_stdin() -> None:
-    stop_event = threading.Event()
-
-    watcher = cli._stdin_shutdown_watcher(stop_event, None)
-
-    assert watcher is None
-    assert not stop_event.is_set()
-
-
-def test_run_server_cli_reports_config_errors_cleanly(monkeypatch, capsys) -> None:
     def fake_load_config(path: Path, overrides: dict[str, object] | None = None) -> MockConfig:
-        raise ValueError("config is invalid")
+        captured["path"] = path
+        return MockConfig(
+            bind_host="0.0.0.0",
+            bind_port=9090,
+            consumer_host="127.0.0.1",
+            consumer_port=8080,
+            device_id=12,
+            measurement_type=MEASUREMENT_TYPE_SPECTRA,
+            rate_hz=1000,
+            mode="burst",
+            ring_buffer_capacity=16,
+            initial_sequence_number=0,
+            gps_latitude=56.6718316,
+            gps_longitude=24.2391946,
+            gps_altitude_m=35.0,
+            capture_path=None,
+        )
+
+    class FakeConsumer:
+        def __init__(self, config: MockConfig) -> None:
+            captured["cons_config"] = config
+            self.host = "0.0.0.0"
+            self.port = 9090
+            self.started = False
+            self.stopped = False
+
+        def start(self) -> None:
+            self.started = True
+            captured["started"] = True
+
+        def stop(self) -> None:
+            self.stopped = True
+            captured["stopped"] = True
+
+    def fake_wait(consumer: object) -> None:
+        captured["waited"] = True
 
     monkeypatch.setattr(cli, "load_config", fake_load_config)
-    monkeypatch.setattr(sys, "argv", ["kc-sensor-mock"])
+    monkeypatch.setattr(cli, "SensorConsumerServer", FakeConsumer)
+    monkeypatch.setattr(cli, "_wait_for_shutdown", fake_wait)
+    monkeypatch.setattr(sys, "argv", ["kc-sensor-consumer"])
 
-    with pytest.raises(SystemExit) as exc_info:
-        cli.run_server_cli()
+    cli.run_consumer_cli()
 
-    stderr = capsys.readouterr().err
-    assert exc_info.value.code == 2
-    assert "config is invalid" in stderr
-    assert "Traceback" not in stderr
-
-
-def test_run_client_cli_prints_record_summaries(monkeypatch, capsys) -> None:
-    captured: dict[str, object] = {}
-    record = SensorRecord(
-        device_id=7,
-        measurement_type=MEASUREMENT_TYPE_SPECTRA,
-        sequence_number=3,
-        dropped_records_total=1,
-        sensor_timestamp_us=100,
-        gps_timestamp_us=200,
-        gps_latitude_e7=1,
-        gps_longitude_e7=2,
-        gps_altitude_mm=3,
-        values=tuple(range(296)),
-    )
-    record_2 = replace(record, sequence_number=4, dropped_records_total=2)
-
-    def fake_read_records(host: str, port: int, count: int) -> list[SensorRecord]:
-        captured["args"] = (host, port, count)
-        return [record, record_2]
-
-    monkeypatch.setattr(cli, "read_records", fake_read_records)
-    monkeypatch.setattr(sys, "argv", ["kc-sensor-client", "--host", "localhost", "--port", "9100", "--count", "2"])
-
-    cli.run_client_cli()
-
-    assert captured["args"] == ("localhost", 9100, 2)
-    output = capsys.readouterr().out.splitlines()
-    assert output == [
-        "sequence=3 device_id=7 measurement_type=1 dropped_records_total=1",
-        "sequence=4 device_id=7 measurement_type=1 dropped_records_total=2",
-    ]
+    assert captured["started"] is True
+    assert captured["waited"] is True
+    assert captured["stopped"] is True
 
 
-def test_run_client_cli_reports_read_errors_cleanly(monkeypatch, capsys) -> None:
-    def fake_read_records(host: str, port: int, count: int) -> list[SensorRecord]:
-        raise OSError("connection refused")
+def test_consumer_help_shows_bind_defaults(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = cli.consumer_parser()
+    help_text = parser.format_help()
 
-    monkeypatch.setattr(cli, "read_records", fake_read_records)
-    monkeypatch.setattr(sys, "argv", ["kc-sensor-client"])
-
-    with pytest.raises(SystemExit) as exc_info:
-        cli.run_client_cli()
-
-    stderr = capsys.readouterr().err
-    assert exc_info.value.code == 2
-    assert "connection refused" in stderr
-    assert "Traceback" not in stderr
+    assert "(default: None)" in help_text

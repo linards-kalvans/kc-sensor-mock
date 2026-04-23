@@ -10,8 +10,8 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.scripts]
-kc-sensor-mock = "kc_sensor_mock.cli:run_server_cli"
-kc-sensor-client = "kc_sensor_mock.cli:run_client_cli"
+kc-sensor-producer = "kc_sensor_mock.cli:run_producer_cli"
+kc-sensor-consumer = "kc_sensor_mock.cli:run_consumer_cli"
 
 [build-system]
 requires = ["hatchling"]

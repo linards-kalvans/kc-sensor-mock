@@ -19,12 +19,12 @@ V1 includes:
   - `1`: spectra
   - `2`: background spectra
 - A fixed-capacity ring buffer that drops oldest records when full.
-- A single-client TCP server that streams records continuously.
+- An inbound TCP listener (consumer) that accepts one producer connection at a time.
+- An outbound TCP client (producer) that connects to the consumer and streams records continuously.
 - Config file support with CLI overrides.
 - Rate-controlled mode, defaulting to `1000 Hz`.
 - Burst mode for maximum sustained throughput testing.
 - Optional raw binary capture of the exact records written to TCP.
-- A reference client that reads and unpacks N records.
 - Automated tests for protocol, buffering, generation, and TCP smoke behavior.
 - A separately runnable performance check for high-rate streaming.
 
@@ -120,7 +120,7 @@ Default capacity: `4096` records, configurable.
 
 ## TCP Streaming
 
-The mock runs one TCP listener and accepts one connected client at a time. After a client connects, the server streams packed records continuously. If the client disconnects, the server closes that connection and waits for the next client.
+The consumer runs one inbound TCP listener and accepts one producer connection at a time. After a producer connects, the consumer accepts the stream. The producer connects outbound to the consumer bind address, reads records from its ring buffer, and writes packed records to the socket continuously.
 
 The stream contains only repeated binary records:
 
@@ -138,20 +138,20 @@ The mock supports a static config file plus CLI overrides.
 
 Expected configurable fields:
 
-- host
-- port
-- device_id
-- measurement_type
-- rate_hz
-- mode: `rate-controlled` or `burst`
-- ring_buffer_capacity
-- capture_path
-- initial_sequence_number
-- sample data source
+- `bind_host`
+- `bind_port`
+- `consumer_host`
+- `consumer_port`
+- `device_id`
+- `measurement_type`
+- `rate_hz`
+- `mode`: `rate-controlled` or `burst`
+- `ring_buffer_capacity`
+- `capture_path`
+- `initial_sequence_number`
 - GPS latitude, longitude, altitude
-- GPS timestamp behavior
 
-CLI overrides should cover common runtime fields such as host, port, device ID, rate, mode, buffer capacity, and capture path.
+CLI overrides should cover common runtime fields such as bind endpoint, consumer endpoint, device ID, rate, mode, buffer capacity, and capture path.
 
 ## Capture
 
@@ -159,31 +159,18 @@ When enabled, capture writes the exact packed records sent to the TCP socket int
 
 Capture is disabled by default to avoid affecting high-rate streaming unless explicitly requested.
 
-## Reference Client
-
-The reference client connects to the mock, reads N fixed-size records, unpacks them, and validates:
-
-- exact record size
-- measurement type
-- sequence progression
-- dropped-record counter monotonicity
-- timestamp monotonicity
-- values array length
-
-The client is a connector development aid and regression tool, not a production receiver.
-
 ## Error Handling
 
 Configuration and sample validation errors should fail fast with clear messages.
 
 Runtime handling:
 
-- If no client is connected, the producer may continue filling the ring buffer according to configured behavior.
+- If the producer cannot connect, it keeps trying and continues buffering according to configured behavior.
 - If the ring buffer overflows, oldest records are dropped and counted.
-- If the TCP client disconnects, the server closes that socket and waits for another client.
-- If a client reconnects, it should treat the next full record as a new stream position and detect missed records from `sequence_number` and `dropped_records_total`.
-- If a socket write fails, the current connection is abandoned and the listener remains available.
-- If capture writing fails, the mock should stop with an explicit error because the captured byte stream would no longer be trustworthy.
+- If the consumer-side socket closes, the producer abandons that connection and retries.
+- If the consumer receives malformed or partial data, it closes that producer connection and continues accepting future producers.
+- If a socket write fails, the producer rolls back capture bytes for the unsent payload and retries on a later connection.
+- If capture writing fails, the producer stops with an explicit error because the captured byte stream would no longer be trustworthy.
 
 ## Performance Expectations
 
@@ -204,7 +191,8 @@ Automated tests should cover:
 - Measurement type controls how consumers interpret `values`.
 - Ring buffer drops oldest records and increments the dropped counter.
 - Rate-controlled generator produces monotonic sequence and timestamps.
-- Reference client can read and unpack records from the TCP server.
+- Producer connects outward and streams valid records to a listening consumer endpoint.
+- Consumer exact-read helper detects partial reads.
 - Optional capture output equals the bytes sent over TCP in a controlled test.
 
 Performance testing should be separately runnable so normal tests stay reliable. It should exercise a short high-rate stream at or near 1000 Hz and report achieved records per second and bytes per second.

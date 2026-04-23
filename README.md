@@ -1,6 +1,6 @@
 # kc-sensor-mock
 
-`kc-sensor-mock` is a Python mock of an STM-style sensor device. It streams fixed binary sensor records over TCP so connector code can be exercised against a stable, C-friendly protocol.
+`kc-sensor-mock` is a Python mock of an STM-style sensor device. A producer connects outbound to a consumer listener and streams fixed binary sensor records over TCP so connector code can be exercised against a stable, C-friendly protocol.
 
 ## Protocol
 
@@ -30,24 +30,44 @@ That format corresponds to:
 
 ## Run
 
-Start the server with the default config:
+Start the consumer listener:
 
 ```bash
-uv run kc-sensor-mock
+uv run kc-sensor-consumer
 ```
 
-Connect with the reference client:
+Start the producer and connect it to the consumer endpoint:
 
 ```bash
-uv run kc-sensor-client --host 127.0.0.1 --port 9000 --count 10
+uv run kc-sensor-producer
 ```
+
+Example with explicit endpoint overrides:
+
+```bash
+uv run kc-sensor-consumer --bind-host 127.0.0.1 --bind-port 9000
+uv run kc-sensor-producer --consumer-host 127.0.0.1 --consumer-port 9000
+```
+
+## Config
+
+Default config lives in `configs/default.toml`.
+
+Key transport fields:
+
+- `bind_host`
+- `bind_port`
+- `consumer_host`
+- `consumer_port`
+
+Use `bind_*` for the consumer listener and `consumer_*` for the producer target endpoint.
 
 ## Testing
 
 Run the normal test suite. Perf tests stay skipped by default:
 
 ```bash
-uv run pytest tests -v
+uv run pytest -v
 ```
 
 Run the perf lane explicitly when you want the high-rate check:
@@ -59,6 +79,6 @@ uv run pytest tests/perf/test_stream_rate.py --run-perf -s -v
 ## CLI Help
 
 ```bash
-uv run kc-sensor-mock --help
-uv run kc-sensor-client --help
+uv run kc-sensor-producer --help
+uv run kc-sensor-consumer --help
 ```

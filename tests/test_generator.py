@@ -11,8 +11,10 @@ from kc_sensor_mock.sample_data import SAMPLE_VALUES
 
 def config() -> MockConfig:
     return MockConfig(
-        host="127.0.0.1",
-        port=9000,
+        bind_host="127.0.0.1",
+        bind_port=9000,
+        consumer_host=None,
+        consumer_port=None,
         device_id=1,
         measurement_type=MEASUREMENT_TYPE_SPECTRA,
         rate_hz=1000,

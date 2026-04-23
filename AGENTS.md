@@ -1,10 +1,10 @@
 # Project Overview
 
-This project defines and implements a mock sensor streaming application for an STM-style embedded C device. The initial implementation will be Python, but the protocol and architecture must support a later C implementation that behaves like a physical device producing fixed binary records over TCP.
+This project defines and implements a mock sensor streaming application for an STM-style embedded C device. The initial implementation is Python, but the protocol and architecture must support a later C implementation that behaves like a physical device. The producer connects outbound to a socket opened by the consumer and streams fixed binary records over TCP.
 
 ## Scope
 
-The v1 scope is a protocol-first Python mock that streams fixed-size little-endian binary sensor records over TCP to one connected consumer at a time. The mock will generate sample-like spectra or background spectra records, use a fixed-capacity ring buffer, drop the oldest records on overflow, and optionally capture the exact transmitted bytes to disk.
+The v1 scope is a protocol-first Python mock whose producer connects outbound to a consumer listener, streaming fixed-size little-endian binary sensor records over TCP. The mock generates sample-like spectra or background spectra records, uses a fixed-capacity ring buffer, drops the oldest records on overflow, and optionally captures the exact transmitted bytes to disk.
 
 Out of scope for v1: multi-client fan-out, command/control protocol, dynamic TCP framing headers, record delimiters, per-record checksums, production C implementation, UI, and field metadata in the sensor record.
 
@@ -14,12 +14,12 @@ Out of scope for v1: multi-client fan-out, command/control protocol, dynamic TCP
 - Implement Python packing/unpacking for the fixed record.
 - Validate and normalize the fixed 296-value sample spectra data before generator work.
 - Implement sample-like record generation with configurable rate and burst modes.
-- Implement a drop-oldest ring buffer.
-- Implement single-client TCP streaming.
-- Implement CLI entry points for server and client invocation, including config overrides.
-- Harden CLI defaults, shutdown behavior, and user-facing error handling, including clean server exit on stdin EOF and SIGINT/SIGTERM.
-- Implement a reference client for connector validation.
-- Add dedicated capture tests that verify the raw capture stream matches the bytes delivered to the TCP client.
+- Implement a ring buffer that drops oldest records on overflow.
+- Implement the producer as an outbound TCP client that connects to a consumer listener.
+- Implement the consumer as an inbound TCP listener that accepts one producer connection at a time.
+- Implement CLI entry points: `kc-sensor-producer` (outbound client) and `kc-sensor-consumer` (inbound listener), including config overrides.
+- Harden CLI defaults, shutdown behavior, and user-facing error handling, including clean exit on stdin EOF and SIGINT/SIGTERM.
+- Add dedicated capture tests that verify the raw capture stream matches the bytes delivered to the TCP consumer endpoint.
 - Add automated tests and a separately runnable high-rate performance check.
 - Use the protocol spec and golden vectors as the migration path for a later C simulator.
 - Keep the manual performance check isolated in `tests/perf/test_stream_rate.py` and run it with `uv run pytest tests/perf/test_stream_rate.py --run-perf -s -v`.
@@ -49,6 +49,7 @@ Python is used for the initial mock implementation. Use `uv` for Python project 
 - Treat TCP as the transport-level reliability mechanism. Application-level recovery is reconnect plus `sequence_number` and `dropped_records_total` validation.
 - Optimize the protocol for bandwidth and I/O efficiency.
 - Treat Python timing at high rates as approximate; validate average throughput and binary correctness.
+- Use `bind_host` / `bind_port` for the consumer listener and `consumer_host` / `consumer_port` for the producer target endpoint.
 
 ## Roles
 

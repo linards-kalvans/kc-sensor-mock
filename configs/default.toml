@@ -1,5 +1,7 @@
-host = "127.0.0.1"
-port = 9000
+bind_host = "127.0.0.1"
+bind_port = 9000
+consumer_host = "127.0.0.1"
+consumer_port = 9000
 device_id = 1
 measurement_type = 1
 rate_hz = 1000

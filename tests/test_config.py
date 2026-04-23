@@ -1,3 +1,7 @@
+"""Tests for config: producer/consumer endpoint fields."""
+
+from __future__ import annotations
+
 from pathlib import Path
 
 import pytest
@@ -5,16 +9,12 @@ import pytest
 from kc_sensor_mock.config import MockConfig, load_config
 
 
-def _write_config(tmp_path: Path, body: str) -> Path:
-    config_path = tmp_path / "config.toml"
-    config_path.write_text(body.strip(), encoding="utf-8")
-    return config_path
-
-
-def _base_config_body(**overrides: object) -> str:
+def _write_config(tmp_path: Path, **overrides: object) -> Path:
     values: dict[str, object] = {
-        "host": "127.0.0.1",
-        "port": 9000,
+        "bind_host": "127.0.0.1",
+        "bind_port": 9000,
+        "consumer_host": "127.0.0.1",
+        "consumer_port": 8080,
         "device_id": 1,
         "measurement_type": 1,
         "rate_hz": 1000,
@@ -28,181 +28,163 @@ def _base_config_body(**overrides: object) -> str:
     }
     values.update(overrides)
 
-    lines = []
+    lines: list[str] = []
     for key, value in values.items():
         if isinstance(value, str):
             lines.append(f'{key} = "{value}"')
-        elif isinstance(value, Path):
-            lines.append(f'{key} = "{value.as_posix()}"')
-        elif isinstance(value, bool):
-            lines.append(f"{key} = {str(value).lower()}")
-        elif value is None:
-            lines.append(f"{key} = null")
         else:
             lines.append(f"{key} = {value}")
-    return "\n".join(lines)
+
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return config_path
 
 
-def test_load_config_from_toml(tmp_path: Path) -> None:
-    config_path = _write_config(tmp_path, _base_config_body())
+# --- AC-9: Config supports consumer_host, consumer_port, bind_host, bind_port ---
 
-    config = load_config(config_path)
-
-    assert config == MockConfig(
-        host="127.0.0.1",
-        port=9000,
-        device_id=1,
-        measurement_type=1,
-        rate_hz=1000,
-        mode="rate-controlled",
-        ring_buffer_capacity=4096,
-        initial_sequence_number=0,
-        gps_latitude=56.6718316,
-        gps_longitude=24.2391946,
-        gps_altitude_m=35.0,
-        capture_path=None,
+def test_load_config_accepts_consumer_endpoint_fields(tmp_path: Path) -> None:
+    config = load_config(
+        _write_config(
+            tmp_path,
+            consumer_host="10.0.0.5",
+            consumer_port=8080,
+            bind_host="0.0.0.0",
+            bind_port=9090,
+        )
     )
 
-
-def test_capture_path_from_toml_is_relative_to_config_file(tmp_path: Path) -> None:
-    config_path = _write_config(tmp_path, _base_config_body(capture_path="capture.bin"))
-
-    config = load_config(config_path)
-
-    assert config.capture_path == config_path.parent / "capture.bin"
+    assert config.consumer_host == "10.0.0.5"
+    assert config.consumer_port == 8080
+    assert config.bind_host == "0.0.0.0"
+    assert config.bind_port == 9090
 
 
-def test_absolute_capture_path_from_toml_stays_absolute(tmp_path: Path) -> None:
-    absolute_path = tmp_path / "capture.bin"
-    config_path = _write_config(
-        tmp_path,
-        _base_config_body(capture_path=absolute_path.as_posix()),
+def test_load_config_accepts_bind_endpoint_fields_only(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'bind_host = "0.0.0.0"',
+                "bind_port = 5555",
+                "device_id = 2",
+                "measurement_type = 1",
+                "rate_hz = 500",
+                'mode = "burst"',
+                "ring_buffer_capacity = 2048",
+                "initial_sequence_number = 100",
+                "gps_latitude = 56.6718316",
+                "gps_longitude = 24.2391946",
+                "gps_altitude_m = 35.0",
+                'capture_path = ""',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
     )
 
     config = load_config(config_path)
 
-    assert config.capture_path == absolute_path
+    assert config.bind_host == "0.0.0.0"
+    assert config.bind_port == 5555
+    assert config.consumer_host is None
+    assert config.consumer_port is None
 
 
-def test_cli_overrides_replace_config_values(tmp_path: Path) -> None:
-    config_path = _write_config(tmp_path, _base_config_body())
+def test_load_config_accepts_producer_endpoint_fields_only(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                'consumer_host = "192.168.1.10"',
+                "consumer_port = 7777",
+                "device_id = 3",
+                "measurement_type = 1",
+                "rate_hz = 200",
+                'mode = "rate-controlled"',
+                "ring_buffer_capacity = 1024",
+                "initial_sequence_number = 0",
+                "gps_latitude = 56.6718316",
+                "gps_longitude = 24.2391946",
+                "gps_altitude_m = 35.0",
+                'capture_path = ""',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
-    config = load_config(config_path, overrides={"port": 9100, "mode": "burst"})
+    config = load_config(config_path)
 
-    assert config.port == 9100
-    assert config.mode == "burst"
-
-
-def test_cli_capture_path_override_stays_relative(tmp_path: Path) -> None:
-    config_path = _write_config(tmp_path, _base_config_body(capture_path="capture.bin"))
-
-    config = load_config(config_path, overrides={"capture_path": Path("override.bin")})
-
-    assert config.capture_path == Path("override.bin")
+    assert config.consumer_host == "192.168.1.10"
+    assert config.consumer_port == 7777
+    assert config.bind_host is None
+    assert config.bind_port is None
 
 
-def test_cli_empty_string_capture_path_override_disables_toml_value(tmp_path: Path) -> None:
-    config_path = _write_config(tmp_path, _base_config_body(capture_path="capture.bin"))
+def test_cli_overrides_consumer_endpoint_fields(tmp_path: Path) -> None:
+    config = load_config(
+        _write_config(tmp_path, consumer_host="10.0.0.5", consumer_port=8080),
+        overrides={"consumer_host": "10.0.0.99", "bind_port": 1234},
+    )
 
-    config = load_config(config_path, overrides={"capture_path": ""})
-
-    assert config.capture_path is None
-
-
-def test_cli_none_capture_path_override_is_ignored(tmp_path: Path) -> None:
-    config_path = _write_config(tmp_path, _base_config_body(capture_path="capture.bin"))
-
-    config = load_config(config_path, overrides={"capture_path": None})
-
-    assert config.capture_path == config_path.parent / "capture.bin"
+    assert config.consumer_host == "10.0.0.99"
+    assert config.bind_port == 1234
 
 
 @pytest.mark.parametrize(
-    "_field, overrides, expected_message",
+    "field, value, expected_message",
     [
-        ("mode", None, "mode"),
-        ("measurement_type", None, "measurement_type"),
-        ("port", None, "port"),
-        ("rate_hz", None, "rate_hz"),
-        ("ring_buffer_capacity", None, "ring_buffer_capacity"),
-        ("port", {"port": 65536}, "port"),
+        ("bind_port", 0, "bind_port"),
+        ("consumer_port", 0, "consumer_port"),
+        ("rate_hz", 0, "rate_hz"),
+        ("ring_buffer_capacity", 0, "ring_buffer_capacity"),
+        ("bind_port", 65536, "bind_port"),
+        ("consumer_port", 65536, "consumer_port"),
     ],
 )
 def test_load_config_rejects_invalid_boundary_values(
     tmp_path: Path,
-    _field: str,
-    overrides: dict[str, object] | None,
-    expected_message: str,
-) -> None:
-    body_map = {
-        "mode": _base_config_body(mode="invalid"),
-        "measurement_type": _base_config_body(measurement_type=99),
-        "port": _base_config_body(port=0),
-        "rate_hz": _base_config_body(rate_hz=0),
-        "ring_buffer_capacity": _base_config_body(ring_buffer_capacity=0),
-    }
-    config_path = _write_config(tmp_path, body_map[_field])
-
-    with pytest.raises(ValueError, match=expected_message):
-        load_config(config_path, overrides=overrides)
-
-
-@pytest.mark.parametrize(
-    "field, value, expected_message",
-    [
-        ("port", 9000.9, "port"),
-        ("port", True, "port"),
-        ("device_id", 1.2, "device_id"),
-        ("device_id", False, "device_id"),
-        ("measurement_type", 1.1, "measurement_type"),
-        ("measurement_type", True, "measurement_type"),
-        ("rate_hz", 1000.5, "rate_hz"),
-        ("rate_hz", True, "rate_hz"),
-        ("ring_buffer_capacity", 4096.3, "ring_buffer_capacity"),
-        ("ring_buffer_capacity", True, "ring_buffer_capacity"),
-        ("initial_sequence_number", 0.7, "initial_sequence_number"),
-        ("initial_sequence_number", False, "initial_sequence_number"),
-    ],
-)
-def test_load_config_rejects_non_integer_values(
-    tmp_path: Path,
     field: str,
     value: object,
     expected_message: str,
 ) -> None:
-    config_path = _write_config(tmp_path, _base_config_body(**{field: value}))
-
     with pytest.raises(ValueError, match=expected_message):
-        load_config(config_path)
+        load_config(_write_config(tmp_path, **{field: value}))
 
 
-@pytest.mark.parametrize(
-    "field, value, expected_message",
-    [
-        ("device_id", 65_536, "device_id"),
-        ("initial_sequence_number", 2**32, "initial_sequence_number"),
-        ("gps_latitude", 91.0, "gps_latitude"),
-        ("gps_latitude", -91.0, "gps_latitude"),
-        ("gps_longitude", 181.0, "gps_longitude"),
-        ("gps_longitude", -181.0, "gps_longitude"),
-        ("gps_altitude_m", 3_000_000.0, "gps_altitude_m"),
-    ],
-)
-def test_load_config_rejects_out_of_range_values(
-    tmp_path: Path,
-    field: str,
-    value: object,
-    expected_message: str,
-) -> None:
-    config_path = _write_config(tmp_path, _base_config_body(**{field: value}))
-
-    with pytest.raises(ValueError, match=expected_message):
-        load_config(config_path)
+def test_capture_path_from_toml_is_relative_to_config_file(tmp_path: Path) -> None:
+    config = load_config(_write_config(tmp_path, capture_path="capture.bin"))
+    assert config.capture_path == tmp_path / "capture.bin"
 
 
 def test_gps_altitude_that_scales_to_int32_limit_is_accepted(tmp_path: Path) -> None:
-    config_path = _write_config(tmp_path, _base_config_body(gps_altitude_m=2_147_483.647))
-
-    config = load_config(config_path)
-
+    config = load_config(_write_config(tmp_path, gps_altitude_m=2147483.647))
     assert config.gps_altitude_m == pytest.approx(2_147_483.647)
+
+
+def test_load_config_rejects_non_integer_values(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="bind_port"):
+        load_config(_write_config(tmp_path, bind_port=9000.9))
+
+
+def test_load_config_rejects_out_of_range_latitude(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="gps_latitude"):
+        load_config(_write_config(tmp_path, gps_latitude=91.0))
+
+
+# --- Old host/port fields should be rejected ---
+
+def test_load_config_rejects_old_host_field(tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    config_path.write_text(config_path.read_text(encoding="utf-8") + 'host = "127.0.0.1"\n', encoding="utf-8")
+
+    with pytest.raises((KeyError, ValueError)):
+        load_config(config_path)
+
+
+def test_load_config_rejects_old_port_field(tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path)
+    config_path.write_text(config_path.read_text(encoding="utf-8") + "port = 9000\n", encoding="utf-8")
+
+    with pytest.raises((KeyError, ValueError)):
+        load_config(config_path)

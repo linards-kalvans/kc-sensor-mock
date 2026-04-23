@@ -12,8 +12,10 @@ VALID_MODES = {"rate-controlled", "burst"}
 
 @dataclass(frozen=True)
 class MockConfig:
-    host: str
-    port: int
+    bind_host: str | None
+    bind_port: int | None
+    consumer_host: str | None
+    consumer_port: int | None
     device_id: int
     measurement_type: int
     rate_hz: int
@@ -68,10 +70,10 @@ def _validate_positive_int(name: str, value: object) -> int:
     return int_value
 
 
-def _validate_port(value: object) -> int:
-    int_value = _validate_positive_int("port", value)
+def _validate_port(value: object, name: str = "port") -> int:
+    int_value = _validate_positive_int(name, value)
     if int_value > 65_535:
-        raise ValueError("port must be positive and <= 65535")
+        raise ValueError(f"{name} must be positive and <= 65535")
     return int_value
 
 
@@ -148,8 +150,15 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> MockConf
             }
         )
 
-    host = str(data["host"])
-    port = _validate_port(data["port"])
+    # Reject old host/port field names
+    for old_key in ("host", "port"):
+        if old_key in data:
+            raise KeyError(f"{old_key} is no longer a valid config field; use bind_host/bind_port or consumer_host/consumer_port")
+
+    bind_host = str(data.get("bind_host", "")) or None
+    bind_port = _validate_port(data["bind_port"], "bind_port") if "bind_port" in data else None
+    consumer_host = str(data.get("consumer_host", "")) or None
+    consumer_port = _validate_port(data["consumer_port"], "consumer_port") if "consumer_port" in data else None
     device_id = _validate_device_id(data["device_id"])
     measurement_type = _validate_measurement_type(data["measurement_type"])
     rate_hz = _validate_rate_hz(data["rate_hz"])
@@ -169,8 +178,10 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> MockConf
     )
 
     return MockConfig(
-        host=host,
-        port=port,
+        bind_host=bind_host,
+        bind_port=bind_port,
+        consumer_host=consumer_host,
+        consumer_port=consumer_port,
         device_id=device_id,
         measurement_type=measurement_type,
         rate_hz=rate_hz,
