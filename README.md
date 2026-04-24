@@ -49,6 +49,55 @@ uv run kc-sensor-consumer --bind-host 127.0.0.1 --bind-port 9000
 uv run kc-sensor-producer --consumer-host 127.0.0.1 --consumer-port 9000
 ```
 
+## Parquet Export
+
+The consumer can optionally export received sensor records to Apache Parquet files. A dedicated background writer thread receives records from the main receive path, so parquet writing does not block record ingestion.
+
+### Enabling
+
+Set `parquet_enabled = true` in the config file or pass `--parquet-enabled` on the CLI. When enabled, `parquet_output_dir` must also be set (config validation rejects the combination otherwise).
+
+### Batching Modes
+
+- **`volume`** (default when mode omitted): flushes a file when `parquet_max_records_per_file` records accumulate.
+- **`time`**: flushes a file every `parquet_flush_interval_seconds`, writing whatever records are queued.
+
+### Schema
+
+Each parquet file contains one row per sensor record. The schema mirrors the sensor record fields; the `values` column is stored as a list of `uint16`.
+
+```text
+device_id:          uint16
+measurement_type:   uint16
+sequence_number:    uint32
+dropped_records_total: uint32
+sensor_timestamp_us: uint64
+gps_timestamp_us:   uint64
+gps_latitude_e7:    int32
+gps_longitude_e7:   int32
+gps_altitude_mm:    int32
+values:             list<uint16>
+```
+
+### Queue Overflow
+
+The writer thread uses a bounded queue (`parquet_queue_capacity`, default 256). When the queue is full the oldest pending export record is dropped and a warning is logged (`"Parquet queue full — dropped 1 oldest record(s)"`). This is expected under sustained writer lag and does not affect the live TCP receive path.
+
+### Shutdown
+
+On graceful shutdown the writer thread flushes any remaining records in the queue before exiting, so partial batches are not lost.
+
+### Configuration
+
+| Config key | CLI flag | Type | Default | Description |
+|---|---|---|---|---|
+| `parquet_enabled` | `--parquet-enabled` | bool | `false` | Enable parquet export |
+| `parquet_output_dir` | `--parquet-output-dir` | path | — | Output directory for parquet files (required when enabled) |
+| `parquet_batch_mode` | `--parquet-batch-mode` | string | `volume` | `volume` or `time` |
+| `parquet_max_records_per_file` | `--parquet-max-records-per-file` | int | `1000` | Records per file in volume mode |
+| `parquet_flush_interval_seconds` | `--parquet-flush-interval-seconds` | float | `1.0` | Flush interval in time mode |
+| `parquet_queue_capacity` | `--parquet-queue-capacity` | int | `256` | Max pending export records |
+
 ## Config
 
 Default config lives in `configs/default.toml`.

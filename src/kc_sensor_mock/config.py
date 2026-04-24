@@ -8,6 +8,12 @@ from typing import Any
 from kc_sensor_mock.protocol import VALID_MEASUREMENT_TYPES, scale_altitude_mm
 
 VALID_MODES = {"rate-controlled", "burst"}
+VALID_PARQUET_BATCH_MODES = {"volume", "time"}
+PARQUET_DEFAULTS = {
+    "parquet_max_records_per_file": 1000,
+    "parquet_flush_interval_seconds": 1.0,
+    "parquet_queue_capacity": 256,
+}
 
 
 @dataclass(frozen=True)
@@ -26,6 +32,12 @@ class MockConfig:
     gps_longitude: float
     gps_altitude_m: float
     capture_path: Path | None
+    parquet_enabled: bool = False
+    parquet_output_dir: Path | None = None
+    parquet_batch_mode: str | None = None
+    parquet_max_records_per_file: int = PARQUET_DEFAULTS["parquet_max_records_per_file"]
+    parquet_flush_interval_seconds: float = PARQUET_DEFAULTS["parquet_flush_interval_seconds"]
+    parquet_queue_capacity: int = PARQUET_DEFAULTS["parquet_queue_capacity"]
 
 
 def _validate_mode(value: str) -> str:
@@ -177,6 +189,31 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> MockConf
         from_override=override_capture_path is not None,
     )
 
+    # Parquet fields
+    parquet_enabled = bool(data.get("parquet_enabled", False))
+    parquet_output_dir_raw = data.get("parquet_output_dir")
+    parquet_output_dir_set = "parquet_output_dir" in data
+    parquet_output_dir = Path(parquet_output_dir_raw) if parquet_output_dir_raw else None
+    parquet_batch_mode = data.get("parquet_batch_mode")
+    parquet_max_records_per_file = int(data.get("parquet_max_records_per_file", PARQUET_DEFAULTS["parquet_max_records_per_file"]))
+    parquet_flush_interval_seconds = float(data.get("parquet_flush_interval_seconds", PARQUET_DEFAULTS["parquet_flush_interval_seconds"]))
+    parquet_queue_capacity = int(data.get("parquet_queue_capacity", PARQUET_DEFAULTS["parquet_queue_capacity"]))
+
+    # Validation: batch_mode must always be valid when present
+    if parquet_batch_mode is not None and parquet_batch_mode not in VALID_PARQUET_BATCH_MODES:
+        raise ValueError(f"parquet_batch_mode must be one of {sorted(VALID_PARQUET_BATCH_MODES)}")
+
+    # Validation when enabled
+    if parquet_enabled:
+        if parquet_output_dir is None:
+            raise ValueError("parquet_enabled requires parquet_output_dir")
+        if parquet_batch_mode is None:
+            parquet_batch_mode = "volume"
+        if parquet_batch_mode == "volume" and parquet_max_records_per_file <= 0:
+            raise ValueError("parquet_max_records_per_file must be positive for volume mode")
+        if parquet_batch_mode == "time" and parquet_flush_interval_seconds <= 0:
+            raise ValueError("parquet_flush_interval_seconds must be positive for time mode")
+
     return MockConfig(
         bind_host=bind_host,
         bind_port=bind_port,
@@ -192,4 +229,10 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> MockConf
         gps_longitude=gps_longitude,
         gps_altitude_m=gps_altitude_m,
         capture_path=capture_path,
+        parquet_enabled=parquet_enabled,
+        parquet_output_dir=parquet_output_dir,
+        parquet_batch_mode=parquet_batch_mode,
+        parquet_max_records_per_file=parquet_max_records_per_file,
+        parquet_flush_interval_seconds=parquet_flush_interval_seconds,
+        parquet_queue_capacity=parquet_queue_capacity,
     )

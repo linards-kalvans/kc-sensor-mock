@@ -7,7 +7,9 @@ authors = [
     { name = "Linards Kalvāns", email = "linards.kalvans@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "pyarrow>=24.0.0",
+]
 
 [project.scripts]
 kc-sensor-producer = "kc_sensor_mock.cli:run_producer_cli"

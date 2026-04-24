@@ -12,3 +12,11 @@ gps_latitude = 56.6718316
 gps_longitude = 24.2391946
 gps_altitude_m = 35.0
 capture_path = ""
+
+# Parquet export (disabled by default)
+parquet_enabled = false
+parquet_output_dir = ""
+parquet_batch_mode = ""
+parquet_max_records_per_file = 1000
+parquet_flush_interval_seconds = 1.0
+parquet_queue_capacity = 256

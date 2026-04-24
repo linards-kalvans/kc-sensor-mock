@@ -8,6 +8,7 @@ import threading
 import time
 
 from kc_sensor_mock.config import MockConfig
+from kc_sensor_mock.parquet_export import ConsumerParquetExporter, ParquetExportConfig
 from kc_sensor_mock.protocol import RECORD_SIZE, decode_record
 
 
@@ -35,6 +36,7 @@ class SensorConsumerServer:
         self._stop_event = threading.Event()
         self._listener: socket.socket | None = None
         self._server_thread: threading.Thread | None = None
+        self._exporter: ConsumerParquetExporter | None = None
         self.host: str = config.bind_host or "127.0.0.1"
         self.port: int = 0
 
@@ -49,6 +51,18 @@ class SensorConsumerServer:
         listener.settimeout(0.2)
         self._listener = listener
         self.host, self.port = listener.getsockname()[:2]
+
+        # Start parquet exporter if enabled
+        if self._config.parquet_enabled and self._config.parquet_output_dir is not None:
+            export_cfg = ParquetExportConfig(
+                output_dir=self._config.parquet_output_dir,
+                batch_mode=self._config.parquet_batch_mode or "volume",
+                max_records_per_file=self._config.parquet_max_records_per_file,
+                flush_interval_seconds=self._config.parquet_flush_interval_seconds,
+                queue_capacity=self._config.parquet_queue_capacity,
+            )
+            self._exporter = ConsumerParquetExporter(export_cfg)
+            self._exporter.start()
 
         self._server_thread = threading.Thread(
             target=self._accept_loop,
@@ -69,6 +83,15 @@ class SensorConsumerServer:
         self._server_thread = None
         if server_thread is not None:
             server_thread.join(timeout=2.0)
+
+        if self._exporter is not None:
+            self._exporter.stop()
+            # Surface any fatal exporter error after shutdown.
+            try:
+                self._exporter.check_health()
+            except Exception:
+                raise
+            self._exporter = None
 
     def _accept_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -95,4 +118,12 @@ class SensorConsumerServer:
             except (ValueError, struct.error):
                 # Malformed record — close this connection and continue
                 return
-            # Consumer can decode received records (validation done in decode_record)
+            # Submit decoded record to parquet exporter if enabled
+            exporter = self._exporter
+            if exporter is not None:
+                exporter.submit(record)
+                # Surface fatal exporter errors explicitly
+                try:
+                    exporter.check_health()
+                except Exception:
+                    return

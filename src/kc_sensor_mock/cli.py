@@ -84,6 +84,49 @@ def consumer_parser() -> argparse.ArgumentParser:
         help="Ring buffer capacity override",
     )
     parser.add_argument("--capture-path", type=str, dest="capture_path", help="Capture file path override")
+    # Parquet export flags
+    parser.add_argument(
+        "--parquet-enabled",
+        dest="parquet_enabled",
+        action="store_true",
+        default=False,
+        help="Enable parquet export",
+    )
+    parser.add_argument(
+        "--parquet-output-dir",
+        dest="parquet_output_dir",
+        type=Path,
+        default=None,
+        help="Output directory for parquet files",
+    )
+    parser.add_argument(
+        "--parquet-batch-mode",
+        dest="parquet_batch_mode",
+        choices=("volume", "time"),
+        default=None,
+        help="Batching mode: volume or time",
+    )
+    parser.add_argument(
+        "--parquet-max-records-per-file",
+        dest="parquet_max_records_per_file",
+        type=int,
+        default=None,
+        help="Max records per parquet file (volume mode)",
+    )
+    parser.add_argument(
+        "--parquet-flush-interval-seconds",
+        dest="parquet_flush_interval_seconds",
+        type=float,
+        default=None,
+        help="Flush interval in seconds (time mode)",
+    )
+    parser.add_argument(
+        "--parquet-queue-capacity",
+        dest="parquet_queue_capacity",
+        type=int,
+        default=None,
+        help="Max queue capacity for parquet exporter",
+    )
     return parser
 
 
@@ -120,6 +163,11 @@ def _consumer_overrides(args: argparse.Namespace) -> dict[str, object]:
         "mode",
         "ring_buffer_capacity",
         "capture_path",
+        "parquet_output_dir",
+        "parquet_batch_mode",
+        "parquet_max_records_per_file",
+        "parquet_flush_interval_seconds",
+        "parquet_queue_capacity",
     ):
         value = getattr(args, name)
         if value is None:
@@ -128,6 +176,11 @@ def _consumer_overrides(args: argparse.Namespace) -> dict[str, object]:
             overrides[name] = Path(value) if value else ""
             continue
         overrides[name] = value
+
+    # parquet_enabled is special: only include when True (flag was set)
+    if getattr(args, "parquet_enabled", False):
+        overrides["parquet_enabled"] = True
+
     return overrides
 
 

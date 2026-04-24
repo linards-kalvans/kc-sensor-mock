@@ -4,7 +4,7 @@ This project defines and implements a mock sensor streaming application for an S
 
 ## Scope
 
-The v1 scope is a protocol-first Python mock whose producer connects outbound to a consumer listener, streaming fixed-size little-endian binary sensor records over TCP. The mock generates sample-like spectra or background spectra records, uses a fixed-capacity ring buffer, drops the oldest records on overflow, and optionally captures the exact transmitted bytes to disk.
+The v1 scope is a protocol-first Python mock whose producer connects outbound to a consumer listener, streaming fixed-size little-endian binary sensor records over TCP. The mock generates sample-like spectra or background spectra records, uses a fixed-capacity ring buffer, drops the oldest records on overflow, optionally captures the exact transmitted bytes to disk, and optionally exports received records to Apache Parquet files via a background writer thread.
 
 Out of scope for v1: multi-client fan-out, command/control protocol, dynamic TCP framing headers, record delimiters, per-record checksums, production C implementation, UI, and field metadata in the sensor record.
 
@@ -23,6 +23,7 @@ Out of scope for v1: multi-client fan-out, command/control protocol, dynamic TCP
 - Add automated tests and a separately runnable high-rate performance check.
 - Use the protocol spec and golden vectors as the migration path for a later C simulator.
 - Keep the manual performance check isolated in `tests/perf/test_stream_rate.py` and run it with `uv run pytest tests/perf/test_stream_rate.py --run-perf -s -v`.
+- Implement consumer-side parquet export: optional background writer thread, volume/time batching, bounded queue with drop-oldest overflow, graceful shutdown flush, and per-file row schema mirroring the sensor record (values as list column). Uses `pyarrow`. Default batch mode when enabled is `volume`.
 
 ## Specs
 
