@@ -79,6 +79,28 @@ gps_altitude_mm:    int32
 values:             list<uint16>
 ```
 
+### File Naming
+
+Parquet output filenames follow a restart-safe pattern:
+
+```
+sensor-YYYYMMDDTHHMMSSZ-<mode>-<NNNN>-<seed>[-NN].parquet
+```
+
+- `YYYYMMDDTHHMMSSZ` — UTC timestamp at file creation time
+- `<mode>` — active batch mode (`volume` or `time`)
+- `<NNNN>` — zero-padded per-file counter (monotonic within a process)
+- `<seed>` — 4-character hex random value generated at process start
+- `[-NN]` — optional collision-retry suffix (appended only if the base
+  filename already exists in the output directory)
+
+The exporter reserves each output path atomically using exclusive file
+creation (``open(path, 'x')`` / ``O_EXCL``).  If reservation fails
+because the path already exists (e.g. same-second restart collision),
+an incrementing `NN` suffix is appended and reservation is retried.
+This atomic reservation guarantees no overwrite regardless of timestamp
+overlap or seed collision, even under concurrent writers.
+
 ### Queue Overflow
 
 The writer thread uses a bounded queue (`parquet_queue_capacity`, default 256). When the queue is full the oldest pending export record is dropped and a warning is logged (`"Parquet queue full — dropped 1 oldest record(s)"`). This is expected under sustained writer lag and does not affect the live TCP receive path.
@@ -124,6 +146,47 @@ Run the perf lane explicitly when you want the high-rate check:
 ```bash
 uv run pytest tests/perf/test_stream_rate.py --run-perf -s -v
 ```
+
+## C Producer
+
+A minimal standalone C producer lives under `c/`. It reads CSV sensor records and either writes concatenated little-endian binary wire-format to a file or streams them over TCP to a consumer endpoint.
+
+### Build
+
+```bash
+make -C c clean all
+```
+
+### Verify serialization (emit-binary mode)
+
+```bash
+c/bin/c-producer --csv tests/c_fixtures/minimal_record.csv --emit-binary /tmp/c_emit.bin
+sha256sum /tmp/c_emit.bin tests/c_fixtures/minimal_record.bin
+```
+
+The emitted file must be exactly 632 bytes and byte-identical to `tests/c_fixtures/minimal_record.bin`.
+
+### End-to-end with Python consumer
+
+Start the Python consumer listener:
+
+```bash
+uv run kc-sensor-consumer --bind-host 127.0.0.1 --bind-port 9000
+```
+
+In another terminal, stream records via the C producer:
+
+```bash
+c/bin/c-producer --csv tests/c_fixtures/minimal_record.csv --host 127.0.0.1 --port 9000
+```
+
+### Deferred features
+
+The C producer is a minimal protocol-verification tool. The following features are deferred to a future production C implementation:
+
+- **No rate control** — records are sent as fast as the TCP socket allows.
+- **No reconnect** — if the TCP connection drops, the process exits.
+- **No ring buffer** — all records are held in memory until sent.
 
 ## CLI Help
 

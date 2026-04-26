@@ -37,6 +37,14 @@ Implementation plans live under `docs/superpowers/plans/`. Relevant plans must b
 
 Python is used for the initial mock implementation. Use `uv` for Python project setup, environments, dependency management, and synchronization. The binary protocol must use fixed-width integer fields and explicit little-endian packing so the contract can be reproduced in C.
 
+A minimal standalone C producer exists under `c/` for protocol verification. It reads CSV sensor records and emits concatenated little-endian binary wire-format records via file or TCP. The C code uses manual (non-`struct`) serialization — future C work must preserve this explicit little-endian approach to match the Python protocol contract.
+
+Build and test the C producer independently:
+
+```bash
+make -C c clean all test-serializer test-csv-parser
+```
+
 ## Workflow Rules
 
 - Start new project work with brainstorming before implementation.

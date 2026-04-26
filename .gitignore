@@ -9,3 +9,7 @@ wheels/
 # Virtual environments
 .venv
 .env
+
+# C build outputs
+c/build/
+c/bin/
