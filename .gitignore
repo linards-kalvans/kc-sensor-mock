@@ -13,3 +13,5 @@ wheels/
 # C build outputs
 c/build/
 c/bin/
+
+*.parquet

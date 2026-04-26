@@ -391,3 +391,83 @@ def test_cli_overrides_parquet_queue_capacity(tmp_path: Path) -> None:
         overrides={"parquet_queue_capacity": 512},
     )
     assert config.parquet_queue_capacity == 512
+
+
+# ---------------------------------------------------------------------------
+# Disabled parquet: empty sentinel values must not trigger validation
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_disabled_parquet_with_empty_batch_mode_loads_successfully(tmp_path: Path) -> None:
+    """Disabled parquet + empty batch_mode must not raise.
+
+    Regression: shared config has parquet_enabled=false and parquet_batch_mode=""
+    which previously failed validation because "" is not in VALID_PARQUET_BATCH_MODES.
+    """
+    config = load_config(
+        _write_config(
+            tmp_path,
+            parquet_enabled=False,
+            parquet_batch_mode="",
+        )
+    )
+    assert config.parquet_enabled is False
+    assert config.parquet_batch_mode is None
+
+
+def test_load_config_disabled_parquet_with_empty_output_dir_stays_inert(tmp_path: Path) -> None:
+    """Disabled parquet + empty output_dir must not raise.
+
+    Regression: shared config has parquet_enabled=false and parquet_output_dir=""
+    which previously could trigger enabled-path validation.
+    """
+    config = load_config(
+        _write_config(
+            tmp_path,
+            parquet_enabled=False,
+            parquet_output_dir="",
+        )
+    )
+    assert config.parquet_enabled is False
+    assert config.parquet_output_dir is None
+
+
+def test_load_config_disabled_parquet_empty_batch_mode_yields_none(tmp_path: Path) -> None:
+    """Disabled parquet with empty batch_mode field must yield None, not empty string."""
+    config = load_config(
+        _write_config(
+            tmp_path,
+            parquet_enabled=False,
+            parquet_batch_mode="",
+        )
+    )
+    assert config.parquet_batch_mode is None
+
+
+# ---------------------------------------------------------------------------
+# Enabled parquet: validation must remain strict
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_enabled_parquet_still_requires_output_dir(tmp_path: Path) -> None:
+    """Enabled parquet must still require parquet_output_dir."""
+    with pytest.raises(ValueError):
+        load_config(
+            _write_config(
+                tmp_path,
+                parquet_enabled=True,
+            )
+        )
+
+
+def test_load_config_enabled_parquet_with_invalid_mode_still_fails(tmp_path: Path) -> None:
+    """Enabled parquet with explicitly set invalid batch_mode must still fail."""
+    with pytest.raises(ValueError, match="parquet_batch_mode"):
+        load_config(
+            _write_config(
+                tmp_path,
+                parquet_enabled=True,
+                parquet_output_dir="/tmp/parquet_out",
+                parquet_batch_mode="invalid_mode",
+            )
+        )

@@ -194,7 +194,11 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> MockConf
     parquet_output_dir_raw = data.get("parquet_output_dir")
     parquet_output_dir_set = "parquet_output_dir" in data
     parquet_output_dir = Path(parquet_output_dir_raw) if parquet_output_dir_raw else None
-    parquet_batch_mode = data.get("parquet_batch_mode")
+    parquet_batch_mode_raw = data.get("parquet_batch_mode")
+    if parquet_enabled:
+        parquet_batch_mode = None if parquet_batch_mode_raw is None else parquet_batch_mode_raw
+    else:
+        parquet_batch_mode = None if parquet_batch_mode_raw in ("", None) else parquet_batch_mode_raw
     parquet_max_records_per_file = int(data.get("parquet_max_records_per_file", PARQUET_DEFAULTS["parquet_max_records_per_file"]))
     parquet_flush_interval_seconds = float(data.get("parquet_flush_interval_seconds", PARQUET_DEFAULTS["parquet_flush_interval_seconds"]))
     parquet_queue_capacity = int(data.get("parquet_queue_capacity", PARQUET_DEFAULTS["parquet_queue_capacity"]))

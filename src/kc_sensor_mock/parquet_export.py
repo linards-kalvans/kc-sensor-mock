@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import logging
+import os
 import queue
 import threading
 import time
@@ -50,6 +52,8 @@ class ConsumerParquetExporter:
         self._current_file_records: list[dict[str, Any]] = []
         self._file_counter = 0
         self._dir_created = False
+        # 4-char hex random suffix for cross-process collision avoidance
+        self._process_seed = os.urandom(2).hex()
 
     # -- public lifecycle ---------------------------------------------------
 
@@ -100,7 +104,10 @@ class ConsumerParquetExporter:
             raise err
 
     def stop(self) -> None:
-        """Signal the writer thread to stop and flush pending records."""
+        """Signal the writer thread to stop and flush pending records.
+
+        Raises the last health error if one occurred during export.
+        """
         self._stop_requested.set()
         # Signal a flush so pending records get written.
         try:
@@ -112,6 +119,8 @@ class ConsumerParquetExporter:
         if self._thread is not None:
             self._thread.join(timeout=1.0)
             self._thread = None
+        if self._health_error is not None:
+            raise self._health_error from None
 
     # -- internal -----------------------------------------------------------
 
@@ -189,6 +198,37 @@ class ConsumerParquetExporter:
 
         self._stop_done.set()
 
+    def _next_output_path(self) -> Path:
+        """Return a restart-safe, atomically-reserved output path.
+
+        Generates a candidate filename from timestamp, mode, counter, and
+        process seed.  Reserves the path atomically via exclusive create
+        (``open(..., 'x')``).  If reservation fails (file already exists),
+        appends an incrementing ``-NN`` suffix and retries until a unique
+        path is reserved.  Returns the reserved path.
+        """
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self._file_counter += 1
+        base = (
+            f"sensor-{timestamp}-{self._config.batch_mode}"
+            f"-{self._file_counter:04d}-{self._process_seed}"
+        )
+        candidate = self._config.output_dir / f"{base}.parquet"
+        try:
+            candidate.open("x").close()
+            return candidate
+        except FileExistsError:
+            pass
+        # Collision — append incrementing suffix until reserved
+        suffix = 1
+        while True:
+            candidate = self._config.output_dir / f"{base}-{suffix:02d}.parquet"
+            try:
+                candidate.open("x").close()
+                return candidate
+            except FileExistsError:
+                suffix += 1
+
     def _record_to_dict(self, record: SensorRecord) -> dict[str, Any]:
         return {
             "device_id": record.device_id,
@@ -224,13 +264,23 @@ class ConsumerParquetExporter:
             "values": pa.array([r["values"] for r in records], type=pa.list_(pa.uint16())),
         })
 
-        self._file_counter += 1
-        filename = f"sensor_{self._file_counter:06d}.parquet"
-        filepath = self._config.output_dir / filename
+        try:
+            filepath = self._next_output_path()
+        except Exception as exc:
+            with self._health_lock:
+                self._health_error = exc
+            logger.error("Parquet path reservation failed: %s", exc)
+            return
 
         try:
             pq.write_table(table, filepath)
         except Exception as exc:
+            # Clean up the reserved file so it doesn't linger as an empty
+            # artifact on disk.
+            try:
+                filepath.unlink(missing_ok=True)
+            except OSError:
+                pass
             with self._health_lock:
                 self._health_error = exc
             logger.error("Parquet write failed: %s", exc)

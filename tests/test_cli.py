@@ -281,3 +281,130 @@ def test_consumer_overrides_excludes_unset_parquet_fields() -> None:
     assert "parquet_max_records_per_file" not in overrides
     assert "parquet_flush_interval_seconds" not in overrides
     assert "parquet_queue_capacity" not in overrides
+
+
+# ---------------------------------------------------------------------------
+# Producer CLI: disabled parquet in shared config must not block startup
+# ---------------------------------------------------------------------------
+
+
+def test_producer_cli_loads_config_with_disabled_parquet_sentinels(monkeypatch, capsys) -> None:
+    """Producer CLI must not fail when shared config has parquet_enabled=false and empty parquet fields.
+
+    Regression: the producer uses shared config which has:
+      parquet_enabled = false
+      parquet_output_dir = ""
+      parquet_batch_mode = ""
+    These disabled sentinel values must not trigger parquet validation.
+    """
+    captured: dict[str, object] = {}
+
+    def fake_load_config(path: Path, overrides: dict[str, object] | None = None) -> MockConfig:
+        captured["path"] = path
+        return MockConfig(
+            consumer_host="127.0.0.1",
+            consumer_port=9100,
+            bind_host="127.0.0.1",
+            bind_port=0,
+            device_id=12,
+            measurement_type=MEASUREMENT_TYPE_SPECTRA,
+            rate_hz=1000,
+            mode="burst",
+            ring_buffer_capacity=16,
+            initial_sequence_number=0,
+            gps_latitude=56.6718316,
+            gps_longitude=24.2391946,
+            gps_altitude_m=35.0,
+            capture_path=None,
+            parquet_enabled=False,
+            parquet_output_dir=None,
+            parquet_batch_mode=None,
+        )
+
+    class FakeProducer:
+        def __init__(self, config: MockConfig) -> None:
+            captured["prod_config"] = config
+            self.started = False
+            self.stopped = False
+
+        def start(self) -> None:
+            self.started = True
+            captured["started"] = True
+
+        def stop(self) -> None:
+            self.stopped = True
+            captured["stopped"] = True
+
+    def fake_wait(prod: object) -> None:
+        captured["waited"] = True
+
+    monkeypatch.setattr(cli, "load_config", fake_load_config)
+    monkeypatch.setattr(cli, "SensorProducerClient", FakeProducer)
+    monkeypatch.setattr(cli, "_wait_for_shutdown", fake_wait)
+    monkeypatch.setattr(sys, "argv", ["kc-sensor-producer", "--consumer-port", "9100"])
+
+    cli.run_producer_cli()
+    assert captured["started"] is True
+    assert captured["waited"] is True
+    assert captured["stopped"] is True
+
+
+def test_producer_cli_consumer_host_port_override_works(monkeypatch, capsys) -> None:
+    """Producer CLI --consumer-host and --consumer-port overrides must still work.
+
+    Regression: after fixing disabled parquet sentinel handling, consumer endpoint
+    overrides must still propagate correctly.
+    """
+    captured: dict[str, object] = {}
+
+    def fake_load_config(path: Path, overrides: dict[str, object] | None = None) -> MockConfig:
+        captured["overrides"] = overrides
+        return MockConfig(
+            consumer_host="127.0.0.1",
+            consumer_port=9100,
+            bind_host="127.0.0.1",
+            bind_port=0,
+            device_id=12,
+            measurement_type=MEASUREMENT_TYPE_SPECTRA,
+            rate_hz=1000,
+            mode="burst",
+            ring_buffer_capacity=16,
+            initial_sequence_number=0,
+            gps_latitude=56.6718316,
+            gps_longitude=24.2391946,
+            gps_altitude_m=35.0,
+            capture_path=None,
+            parquet_enabled=False,
+            parquet_output_dir=None,
+            parquet_batch_mode=None,
+        )
+
+    class FakeProducer:
+        def __init__(self, config: MockConfig) -> None:
+            captured["prod_config"] = config
+            self.started = False
+            self.stopped = False
+
+        def start(self) -> None:
+            self.started = True
+            captured["started"] = True
+
+        def stop(self) -> None:
+            self.stopped = True
+            captured["stopped"] = True
+
+    def fake_wait(prod: object) -> None:
+        captured["waited"] = True
+
+    monkeypatch.setattr(cli, "load_config", fake_load_config)
+    monkeypatch.setattr(cli, "SensorProducerClient", FakeProducer)
+    monkeypatch.setattr(cli, "_wait_for_shutdown", fake_wait)
+    monkeypatch.setattr(
+        sys, "argv",
+        ["kc-sensor-producer", "--consumer-host", "10.0.0.5", "--consumer-port", "8080"],
+    )
+
+    cli.run_producer_cli()
+    assert captured["started"] is True
+    assert captured["overrides"]["consumer_host"] == "10.0.0.5"
+    assert captured["overrides"]["consumer_port"] == 8080
